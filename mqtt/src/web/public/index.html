@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Device Monitor</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔌 IoT Device Monitor</h1>
+            <div class="connection-status">
+                <span id="connectionStatus" class="status-disconnected">Disconnected</span>
+                <span id="deviceCount">0 devices</span>
+            </div>
+        </header>
+
+        <div class="dashboard">
+            <div class="devices-panel">
+                <h2>📱 Connected Devices</h2>
+                <div id="devicesList" class="devices-list">
+                    <div class="no-devices">No devices connected</div>
+                </div>
+            </div>
+
+            <div class="data-panel">
+                <h2>📊 Real-time Data</h2>
+                <div id="dataStream" class="data-stream">
+                    <div class="no-data">Waiting for device data...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="alerts-panel">
+            <h2>🚨 Alerts</h2>
+            <div id="alertsList" class="alerts-list">
+                <div class="no-alerts">No alerts</div>
+            </div>
+        </div>
+
+        <div class="filters-panel">
+            <h2>🔍 Filters</h2>
+            <div class="filter-controls">
+                <div class="filter-group">
+                    <label for="topicFilter">Topic Filter:</label>
+                <select id="topicFilter" class="filter-select">
+                    <option value="">All Topics</option>
+                    <option value="iot/device/register">Device Registration</option>
+                    <option value="iot/device/status">Device Status</option>
+                    <option value="iot/sensor/data">Sensor Data (All)</option>
+                    <option value="iot/sensor/ctl">Sensor Control (All)</option>
+                    <option value="iot/device/heartbeat">Device Heartbeat</option>
+                    <option value="iot/device/command">Device Commands</option>
+                    <option value="iot/device/response">Device Responses</option>
+                </select>
+                </div>
+                <div class="filter-group">
+                    <label for="deviceFilter">Device ID Filter:</label>
+                    <select id="deviceFilter" class="filter-select">
+                        <option value="">All Devices</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="dataTypeFilter">Data Type:</label>
+                    <select id="dataTypeFilter" class="filter-select">
+                        <option value="">All Data</option>
+                        <option value="sensor">Sensor Data Only</option>
+                        <option value="status">Status Updates Only</option>
+                        <option value="heartbeat">Heartbeats Only</option>
+                        <option value="command">Commands Only</option>
+                    </select>
+                </div>
+                <button id="clearFilters" class="btn btn-secondary">Clear Filters</button>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="clearData" class="btn btn-secondary">Clear Data</button>
+            <button id="exportData" class="btn btn-primary">Export Data</button>
+        </div>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>
