@@ -78,10 +78,80 @@ function formatIoTData(topic, payload, deviceId) {
   }
 }
 
+// Sensor alert checking function
+function checkSensorAlerts(sensorData, timestamp) {
+  if (!sensorData.sensors) return;
+  
+  const alerts = [];
+  
+  // Temperature alerts
+  if (sensorData.sensors.temperature) {
+    const temp = parseFloat(sensorData.sensors.temperature.value);
+    if (temp > 30) {
+      alerts.push({
+        deviceId: sensorData.deviceId,
+        type: 'temperature_high',
+        message: `High temperature alert: ${temp}°C`,
+        value: temp,
+        threshold: 30,
+        timestamp: timestamp
+      });
+    } else if (temp < -10) {
+      alerts.push({
+        deviceId: sensorData.deviceId,
+        type: 'temperature_low',
+        message: `Low temperature alert: ${temp}°C`,
+        value: temp,
+        threshold: -10,
+        timestamp: timestamp
+      });
+    }
+  }
+  
+  // Humidity alerts
+  if (sensorData.sensors.humidity) {
+    const humidity = parseFloat(sensorData.sensors.humidity.value);
+    if (humidity > 80) {
+      alerts.push({
+        deviceId: sensorData.deviceId,
+        type: 'humidity_high',
+        message: `High humidity alert: ${humidity}%`,
+        value: humidity,
+        threshold: 80,
+        timestamp: timestamp
+      });
+    } else if (humidity < 20) {
+      alerts.push({
+        deviceId: sensorData.deviceId,
+        type: 'humidity_low',
+        message: `Low humidity alert: ${humidity}%`,
+        value: humidity,
+        threshold: 20,
+        timestamp: timestamp
+      });
+    }
+  }
+  
+  // Store alerts in Redis
+  alerts.forEach(alert => {
+    redisService.storeAlert(alert);
+    console.log(`🚨 ALERT: ${alert.message} (Device: ${alert.deviceId})`);
+  });
+}
+
 // Event handlers for broker
 aedes.on('client', function (client) {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] 🔌 Client Connected: ${client.id}`);
+  
+  // Log client connection
+  redisService.storeLog({
+    deviceId: client.id,
+    level: 'info',
+    message: `Client connected: ${client.id}`,
+    topic: 'system/connection',
+    data: { clientId: client.id, timestamp: timestamp }
+  });
   
   // Check if this is an IoT device based on client ID pattern
   if (client.id.startsWith('iot-') || client.id.includes('device')) {
@@ -92,6 +162,15 @@ aedes.on('client', function (client) {
       messageCount: 0
     });
     console.log(`[${timestamp}] 📱 IoT Device Registered: ${client.id}`);
+    
+    // Store device connection in Redis
+    redisService.storeDevice(client.id, {
+      deviceId: client.id,
+      status: 'online',
+      connectedAt: timestamp,
+      lastSeen: timestamp,
+      messageCount: 0
+    });
   }
 });
 
@@ -99,9 +178,22 @@ aedes.on('clientDisconnect', function (client) {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] 🔌 Client Disconnected: ${client.id}`);
   
+  // Log client disconnection
+  redisService.storeLog({
+    deviceId: client.id,
+    level: 'info',
+    message: `Client disconnected: ${client.id}`,
+    topic: 'system/disconnection',
+    data: { clientId: client.id, timestamp: timestamp }
+  });
+  
   if (connectedDevices.has(client.id)) {
     const device = connectedDevices.get(client.id);
     console.log(`[${timestamp}] 📱 IoT Device Disconnected: ${client.id} (Messages: ${device.messageCount})`);
+    
+    // Update device status in Redis
+    redisService.updateDeviceStatus(client.id, 'offline', timestamp);
+    
     connectedDevices.delete(client.id);
   }
 });
@@ -138,7 +230,23 @@ aedes.on('publish', function (packet, client) {
         if (data.length > 100) {
           data.shift();
         }
+        
+        // Log message to Redis
+        redisService.storeLog({
+          deviceId: deviceId,
+          level: 'info',
+          message: `Message published to ${packet.topic}`,
+          topic: packet.topic,
+          data: iotData.data
+        });
       }
+      
+      // Update topic statistics
+      redisService.storeTopicStats(packet.topic, {
+        subscribers: 0, // This would need to be tracked separately
+        messages: 1,
+        lastMessage: timestamp
+      });
       
       // Enhanced console logging for IoT devices
       console.log(`\n[${timestamp}] 📱 IoT DEVICE DATA`);
@@ -184,6 +292,9 @@ aedes.on('publish', function (packet, client) {
         // Store sensor data in Redis
         if (iotData.data && iotData.data.deviceId) {
           redisService.storeSensorData(iotData.data.deviceId, iotData.data);
+          
+          // Check for sensor alerts
+          checkSensorAlerts(iotData.data, timestamp);
         }
       } else if (packet.topic.startsWith(`${IOT_TOPICS.SENSOR_CTL}/`)) {
         console.log(`   🔧 Sensor Control Command`);
@@ -197,6 +308,9 @@ aedes.on('publish', function (packet, client) {
         // Store sensor data in Redis
         if (iotData.data && iotData.data.deviceId) {
           redisService.storeSensorData(iotData.data.deviceId, iotData.data);
+          
+          // Check for sensor alerts
+          checkSensorAlerts(iotData.data, timestamp);
         }
       } else if (packet.topic.includes('actuator')) {
         console.log(`   ⚙️  Actuator Control`);
@@ -209,6 +323,15 @@ aedes.on('publish', function (packet, client) {
       // Regular logging for non-IoT topics
       console.log(`[${timestamp}] 📨 Message from ${client.id} to topic "${packet.topic}": ${packet.payload.toString()}`);
     }
+  } else {
+    // Log publish errors when no client context
+    redisService.storeLog({
+      deviceId: 'unknown',
+      level: 'warn',
+      message: `Message published without client context to topic: ${packet.topic}`,
+      topic: packet.topic,
+      data: { payload: packet.payload.toString() }
+    });
   }
 });
 
@@ -318,8 +441,27 @@ process.on('SIGINT', async function () {
 // Error handling
 server.on('error', function (err) {
   console.error('❌ Server error:', err);
+  
+  // Log error to Redis
+  redisService.storeLog({
+    deviceId: 'broker',
+    level: 'error',
+    message: `Server error: ${err.message}`,
+    topic: 'system/error',
+    data: { error: err.message, stack: err.stack }
+  });
 });
 
 aedes.on('error', function (err) {
   console.error('❌ Broker error:', err);
+  
+  // Log error to Redis
+  redisService.storeLog({
+    deviceId: 'broker',
+    level: 'error',
+    message: `Broker error: ${err.message}`,
+    topic: 'system/error',
+    data: { error: err.message, stack: err.stack }
+  });
 });
+

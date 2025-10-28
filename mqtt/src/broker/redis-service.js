@@ -322,6 +322,235 @@ class RedisService {
         }
     }
 
+    // Logging System
+    async storeLog(log) {
+        if (!this.isConnected) return false;
+        
+        try {
+            const logId = `log:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`;
+            const timestamp = new Date().toISOString();
+            
+            await this.client.hSet(logId, {
+                deviceId: log.deviceId || '',
+                level: log.level || 'info',
+                message: log.message || '',
+                timestamp: log.timestamp || timestamp,
+                topic: log.topic || '',
+                data: JSON.stringify(log.data || {})
+            });
+            
+            // Add to global logs list
+            await this.client.lPush('logs:global', logId);
+            
+            // Add to device-specific logs if deviceId provided
+            if (log.deviceId) {
+                await this.client.lPush(`logs:device:${log.deviceId}`, logId);
+                // Keep only last 1000 logs per device
+                await this.client.lTrim(`logs:device:${log.deviceId}`, 0, 999);
+            }
+            
+            // Keep only last 10000 global logs
+            await this.client.lTrim('logs:global', 0, 9999);
+            
+            // Set expiration (30 days)
+            await this.client.expire(logId, 30 * 24 * 60 * 60);
+            
+            return true;
+        } catch (error) {
+            console.error('❌ Error storing log:', error);
+            return false;
+        }
+    }
+
+    async getAllLogs(limit = 100) {
+        if (!this.isConnected) return [];
+        
+        try {
+            const logIds = await this.client.lRange('logs:global', 0, limit - 1);
+            const logs = [];
+            
+            for (const logId of logIds) {
+                const log = await this.client.hGetAll(logId);
+                if (Object.keys(log).length > 0) {
+                    logs.push({
+                        ...log,
+                        data: JSON.parse(log.data || '{}')
+                    });
+                }
+            }
+            
+            return logs;
+        } catch (error) {
+            console.error('❌ Error getting all logs:', error);
+            return [];
+        }
+    }
+
+    async getDeviceLogs(deviceId, limit = 100) {
+        if (!this.isConnected) return [];
+        
+        try {
+            const key = `logs:device:${deviceId}`;
+            const logIds = await this.client.lRange(key, 0, limit - 1);
+            const logs = [];
+            
+            for (const logId of logIds) {
+                const log = await this.client.hGetAll(logId);
+                if (Object.keys(log).length > 0) {
+                    logs.push({
+                        ...log,
+                        data: JSON.parse(log.data || '{}')
+                    });
+                }
+            }
+            
+            return logs;
+        } catch (error) {
+            console.error('❌ Error getting device logs:', error);
+            return [];
+        }
+    }
+
+    // Device Management Extensions
+    async deleteDevice(deviceId) {
+        if (!this.isConnected) return false;
+        
+        try {
+            const key = `device:${deviceId}`;
+            
+            // Remove device data
+            await this.client.del(key);
+            
+            // Remove from device index
+            await this.client.sRem('devices:index', deviceId);
+            
+            // Remove sensor data
+            await this.client.del(`sensor_data:${deviceId}`);
+            await this.client.del(`sensor_timeseries:${deviceId}`);
+            
+            // Remove alerts
+            await this.client.del(`alerts:${deviceId}`);
+            
+            // Remove logs
+            await this.client.del(`logs:device:${deviceId}`);
+            
+            return true;
+        } catch (error) {
+            console.error('❌ Error deleting device:', error);
+            return false;
+        }
+    }
+
+    async updateDeviceConfig(deviceId, config) {
+        if (!this.isConnected) return false;
+        
+        try {
+            const key = `device:${deviceId}`;
+            await this.client.hSet(key, {
+                config: JSON.stringify(config),
+                configUpdatedAt: new Date().toISOString()
+            });
+            return true;
+        } catch (error) {
+            console.error('❌ Error updating device config:', error);
+            return false;
+        }
+    }
+
+    // Topic Management
+    async storeTopicStats(topic, stats) {
+        if (!this.isConnected) return false;
+        
+        try {
+            const key = `topic:${topic}`;
+            await this.client.hSet(key, {
+                name: topic,
+                subscribers: stats.subscribers || 0,
+                messages: stats.messages || 0,
+                lastMessage: stats.lastMessage || new Date().toISOString(),
+                lastUpdated: new Date().toISOString()
+            });
+            
+            // Add to topics index
+            await this.client.sAdd('topics:index', topic);
+            
+            // Set expiration (7 days)
+            await this.client.expire(key, 7 * 24 * 60 * 60);
+            
+            return true;
+        } catch (error) {
+            console.error('❌ Error storing topic stats:', error);
+            return false;
+        }
+    }
+
+    async getTopicStats() {
+        if (!this.isConnected) return {};
+        
+        try {
+            const topicIds = await this.client.sMembers('topics:index');
+            const topics = {};
+            
+            for (const topicId of topicIds) {
+                const topic = await this.client.hGetAll(`topic:${topicId}`);
+                if (Object.keys(topic).length > 0) {
+                    topics[topicId] = {
+                        ...topic,
+                        subscribers: parseInt(topic.subscribers) || 0,
+                        messages: parseInt(topic.messages) || 0
+                    };
+                }
+            }
+            
+            return topics;
+        } catch (error) {
+            console.error('❌ Error getting topic stats:', error);
+            return {};
+        }
+    }
+
+    // Statistics
+    async getDeviceCount() {
+        if (!this.isConnected) return 0;
+        
+        try {
+            return await this.client.sCard('devices:index');
+        } catch (error) {
+            console.error('❌ Error getting device count:', error);
+            return 0;
+        }
+    }
+
+    async getAlertCount() {
+        if (!this.isConnected) return 0;
+        
+        try {
+            const devices = await this.getAllDevices();
+            let totalAlerts = 0;
+            
+            for (const device of devices) {
+                const alertCount = await this.client.lLen(`alerts:${device.deviceId}`);
+                totalAlerts += alertCount;
+            }
+            
+            return totalAlerts;
+        } catch (error) {
+            console.error('❌ Error getting alert count:', error);
+            return 0;
+        }
+    }
+
+    async getLogCount() {
+        if (!this.isConnected) return 0;
+        
+        try {
+            return await this.client.lLen('logs:global');
+        } catch (error) {
+            console.error('❌ Error getting log count:', error);
+            return 0;
+        }
+    }
+
     // Health check
     async isHealthy() {
         if (!this.isConnected) return false;
