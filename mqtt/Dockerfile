@@ -15,8 +15,8 @@ RUN npm ci --only=production && npm cache clean --force
 COPY src/ ./src/
 COPY docker/start.sh /app/start.sh
 
-# ✅ Make startup script executable BEFORE switching user
-RUN chmod +x /app/start.sh
+# ✅ Make startup script executable and set proper ownership BEFORE switching user
+RUN chmod +x /app/start.sh && chown mqtt:nodejs /app/start.sh
 
 # Create logs directory and set ownership
 RUN mkdir -p /app/logs && chown mqtt:nodejs /app/logs
