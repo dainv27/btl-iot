@@ -162,7 +162,7 @@ iot/sensor/data/iot-device-12345/response
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MQTT_PORT` | 1883 | MQTT broker port |
-| `WS_PORT` | 8080 | WebSocket port |
+| `WS_PORT` | 9090 | WebSocket port |
 | `WEB_PORT` | 3000 | Web dashboard port |
 | `REQUIRE_AUTH` | false | Enable authentication |
 | `MQTT_USERNAME` | admin | MQTT username |

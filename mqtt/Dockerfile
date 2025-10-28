@@ -27,7 +27,7 @@ USER mqtt
 EXPOSE 1883 9090 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "const net = require('net'); const client = net.createConnection(1883, '14.224.166.195'); client.on('connect', () => { client.end(); process.exit(0); }); client.on('error', () => process.exit(1));"
+  CMD node -e "const net = require('net'); const client = net.createConnection(1883, 'localhost'); client.on('connect', () => { client.end(); process.exit(0); }); client.on('error', () => process.exit(1));"
 
 ENV NODE_ENV=production
 ENV MQTT_PORT=1883
