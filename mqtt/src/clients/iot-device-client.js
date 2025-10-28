@@ -24,7 +24,7 @@ const DEVICE_CONFIG = {
 };
 
 // Create MQTT client for IoT device
-const client = mqtt.connect(`mqtt://14.224.166.195:${config.mqttPort}`, {
+const client = mqtt.connect(`mqtt://localhost:${config.mqttPort}`, {
   clientId: DEVICE_CONFIG.deviceId,
   clean: true,
   connectTimeout: 4000,
@@ -269,6 +269,6 @@ process.on('SIGINT', function () {
 
 console.log('🚀 Starting IoT Device...');
 console.log(`📱 Device ID: ${DEVICE_CONFIG.deviceId}`);
-console.log(`🔗 Connecting to: mqtt://14.224.166.195:${config.mqttPort}`);
+console.log(`🔗 Connecting to: mqtt://localhost:${config.mqttPort}`);
 console.log(`📍 Location: ${DEVICE_CONFIG.location}`);
 console.log(`🔧 Capabilities: ${DEVICE_CONFIG.capabilities.join(', ')}`);

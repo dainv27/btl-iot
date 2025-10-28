@@ -5,7 +5,7 @@ Project ESP32 với chức năng kết nối WiFi, MQTT và gửi dữ liệu c�
 ## Tính năng
 
 - ✅ Kết nối WiFi với SSID: `dainv_24`
-- ✅ Kết nối MQTT tới server: `14.224.166.195:1883`
+- ✅ Kết nối MQTT tới server: `localhost:1883`
 - ✅ Gửi dữ liệu JSON lên topic: `iot/sensor/data`
 - ✅ Tạo fake data nhiệt độ và độ ẩm (không cần cảm biến thật)
 - ✅ Gửi dữ liệu định kỳ mỗi 5 giây
@@ -17,7 +17,7 @@ Project ESP32 với chức năng kết nối WiFi, MQTT và gửi dữ liệu c�
 - Password: `vannhucu@`
 
 ### MQTT
-- Server: `14.224.166.195`
+- Server: `localhost`
 - Port: `1883`
 - Topic: `iot/sensor/data`
 

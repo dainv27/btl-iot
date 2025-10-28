@@ -8,7 +8,7 @@ console.log('==========================================');
 const testDeviceId = 'iot-device-test123';
 
 // Create test client
-const testClient = mqtt.connect(`mqtt://14.224.166.195:${config.mqttPort}`, {
+const testClient = mqtt.connect(`mqtt://localhost:${config.mqttPort}`, {
   clientId: 'topic-test-' + Math.random().toString(16).substr(2, 8),
   clean: true,
   connectTimeout: 4000
@@ -97,6 +97,6 @@ testClient.on('error', function (error) {
   console.error('❌ Test Client Error:', error);
 });
 
-console.log(`🔗 Connecting to: mqtt://14.224.166.195:${config.mqttPort}`);
+console.log(`🔗 Connecting to: mqtt://localhost:${config.mqttPort}`);
 console.log(`📱 Test Device ID: ${testDeviceId}`);
 console.log('⏰ Test will run for 8 seconds...\n');

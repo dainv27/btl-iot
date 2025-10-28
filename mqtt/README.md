@@ -75,10 +75,10 @@ npm run test:iot
 
 ## 🌐 Access Points
 
-- **Web Dashboard**: http://14.224.166.195:3000
-- **MQTT Broker**: mqtt://14.224.166.195:1883
-- **WebSocket**: ws://14.224.166.195:8080
-- **MQTT Explorer**: http://14.224.166.195:4000 (with tools profile)
+- **Web Dashboard**: http://localhost:3000
+- **MQTT Broker**: mqtt://localhost:1883
+- **WebSocket**: ws://localhost:8080
+- **MQTT Explorer**: http://localhost:4000 (with tools profile)
 
 ## 📱 IoT Device Topics
 

@@ -358,29 +358,66 @@ app.post('/api/topics/:topicName/publish', async (req, res) => {
   }
 });
 
-// API endpoint to get system statistics
-app.get('/api/stats', async (req, res) => {
+// API endpoint to get active subscriptions
+app.get('/api/subscriptions', async (req, res) => {
   try {
-    const deviceCount = await redisService.getDeviceCount();
-    const alertCount = await redisService.getAlertCount();
-    const logCount = await redisService.getLogCount();
+    const subscriptions = await redisService.getActiveSubscriptions();
     
     res.json({
       success: true,
-      stats: {
-        devices: deviceCount,
-        alerts: alertCount,
-        logs: logCount,
-        uptime: process.uptime(),
-        memory: process.memoryUsage()
-      },
+      subscriptions: subscriptions,
+      count: subscriptions.length,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Error fetching system stats:', error);
+    console.error('Error fetching subscriptions:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch system stats',
+      error: 'Failed to fetch subscriptions',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// API endpoint to get all active topics (broker subscriptions)
+app.get('/api/topics/active', async (req, res) => {
+  try {
+    const topics = await redisService.getAllActiveTopics();
+    
+    res.json({
+      success: true,
+      topics: topics,
+      count: topics.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching active topics:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch active topics',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// API endpoint to get topic subscribers
+app.get('/api/topics/:topicName/subscribers', async (req, res) => {
+  try {
+    const { topicName } = req.params;
+    const subscribers = await redisService.getTopicSubscribers(topicName);
+    
+    res.json({
+      success: true,
+      topic: topicName,
+      subscribers: subscribers,
+      count: subscribers.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching topic subscribers:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch topic subscribers',
       timestamp: new Date().toISOString()
     });
   }
@@ -427,13 +464,13 @@ async function startWebServer() {
   
   // Start the web server
   app.listen(PORT, () => {
-    console.log(`🌐 Web Dashboard running on http://14.224.166.195:${PORT}`);
-    console.log(`📊 IoT Device Monitor: http://14.224.166.195:${PORT}`);
-    console.log(`🔗 MQTT Broker: mqtt://14.224.166.195:${config.mqttPort}`);
-    console.log(`🔗 WebSocket: ws://14.224.166.195:${config.wsPort}`);
+    console.log(`🌐 Web Dashboard running on http://localhost:${PORT}`);
+    console.log(`📊 IoT Device Monitor: http://localhost:${PORT}`);
+    console.log(`🔗 MQTT Broker: mqtt://localhost:${config.mqttPort}`);
+    console.log(`🔗 WebSocket: ws://localhost:${config.wsPort}`);
     console.log('\n💡 Usage:');
     console.log('   1. Start MQTT broker: npm start');
-    console.log('   2. Open dashboard: http://14.224.166.195:3000');
+    console.log('   2. Open dashboard: http://localhost:3000');
     console.log('   3. Test with IoT device: npm run test:iot');
   });
 }

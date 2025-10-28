@@ -14,21 +14,21 @@ const DEVICE_CONFIG = {
 };
 
 // Create IoT device client
-const deviceClient = mqtt.connect(`mqtt://14.224.166.195:${config.mqttPort}`, {
+const deviceClient = mqtt.connect(`mqtt://localhost:${config.mqttPort}`, {
   clientId: DEVICE_CONFIG.deviceId,
   clean: true,
   connectTimeout: 4000
 });
 
 // Create control system client
-const controlClient = mqtt.connect(`mqtt://14.224.166.195:${config.mqttPort}`, {
+const controlClient = mqtt.connect(`mqtt://localhost:${config.mqttPort}`, {
   clientId: 'control-system-' + Math.random().toString(16).substr(2, 8),
   clean: true,
   connectTimeout: 4000
 });
 
 console.log(`📱 Device ID: ${DEVICE_CONFIG.deviceId}`);
-console.log(`🔗 Connecting to: mqtt://14.224.166.195:${config.mqttPort}`);
+console.log(`🔗 Connecting to: mqtt://localhost:${config.mqttPort}`);
 
 // IoT Device Client
 deviceClient.on('connect', function () {

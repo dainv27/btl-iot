@@ -2,7 +2,7 @@ const mqtt = require('mqtt');
 const config = require('../broker/config');
 
 // Create MQTT client
-const client = mqtt.connect(`mqtt://14.224.166.195:${config.mqttPort}`, {
+const client = mqtt.connect(`mqtt://localhost:${config.mqttPort}`, {
   clientId: 'test-client-' + Math.random().toString(16).substr(2, 8),
   clean: true,
   connectTimeout: 4000,
@@ -75,4 +75,4 @@ process.on('SIGINT', function () {
 });
 
 console.log('🚀 Starting MQTT test client...');
-console.log(`🔗 Connecting to: mqtt://14.224.166.195:${config.mqttPort}`);
+console.log(`🔗 Connecting to: mqtt://localhost:${config.mqttPort}`);

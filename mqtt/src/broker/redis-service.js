@@ -551,6 +551,152 @@ class RedisService {
         }
     }
 
+    // Subscription Management
+    async storeSubscription(clientId, topic, qos = 0) {
+        if (!this.isConnected) return false;
+        
+        try {
+            const subscriptionId = `sub:${clientId}:${topic}`;
+            const timestamp = new Date().toISOString();
+            
+            await this.client.hSet(subscriptionId, {
+                clientId: clientId,
+                topic: topic,
+                qos: qos,
+                subscribedAt: timestamp,
+                lastActivity: timestamp
+            });
+            
+            // Add to client subscriptions list
+            await this.client.sAdd(`client:${clientId}:subscriptions`, topic);
+            
+            // Add to topic subscribers list
+            await this.client.sAdd(`topic:${topic}:subscribers`, clientId);
+            
+            // Add to global subscriptions index
+            await this.client.sAdd('subscriptions:global', subscriptionId);
+            
+            // Set expiration (7 days)
+            await this.client.expire(subscriptionId, 7 * 24 * 60 * 60);
+            
+            return true;
+        } catch (error) {
+            console.error('❌ Error storing subscription:', error);
+            return false;
+        }
+    }
+
+    async removeSubscription(clientId, topic) {
+        if (!this.isConnected) return false;
+        
+        try {
+            const subscriptionId = `sub:${clientId}:${topic}`;
+            
+            // Remove subscription data
+            await this.client.del(subscriptionId);
+            
+            // Remove from client subscriptions list
+            await this.client.sRem(`client:${clientId}:subscriptions`, topic);
+            
+            // Remove from topic subscribers list
+            await this.client.sRem(`topic:${topic}:subscribers`, clientId);
+            
+            // Remove from global subscriptions index
+            await this.client.sRem('subscriptions:global', subscriptionId);
+            
+            return true;
+        } catch (error) {
+            console.error('❌ Error removing subscription:', error);
+            return false;
+        }
+    }
+
+    async getActiveSubscriptions() {
+        if (!this.isConnected) return [];
+        
+        try {
+            const subscriptionIds = await this.client.sMembers('subscriptions:global');
+            const subscriptions = [];
+            
+            for (const subscriptionId of subscriptionIds) {
+                const subscription = await this.client.hGetAll(subscriptionId);
+                if (Object.keys(subscription).length > 0) {
+                    subscriptions.push({
+                        ...subscription,
+                        qos: parseInt(subscription.qos) || 0
+                    });
+                }
+            }
+            
+            return subscriptions;
+        } catch (error) {
+            console.error('❌ Error getting active subscriptions:', error);
+            return [];
+        }
+    }
+
+    async getTopicSubscribers(topic) {
+        if (!this.isConnected) return [];
+        
+        try {
+            return await this.client.sMembers(`topic:${topic}:subscribers`);
+        } catch (error) {
+            console.error('❌ Error getting topic subscribers:', error);
+            return [];
+        }
+    }
+
+    async getClientSubscriptions(clientId) {
+        if (!this.isConnected) return [];
+        
+        try {
+            return await this.client.sMembers(`client:${clientId}:subscriptions`);
+        } catch (error) {
+            console.error('❌ Error getting client subscriptions:', error);
+            return [];
+        }
+    }
+
+    async getAllActiveTopics() {
+        if (!this.isConnected) return [];
+        
+        try {
+            const subscriptions = await this.getActiveSubscriptions();
+            const topics = new Set();
+            
+            subscriptions.forEach(sub => {
+                topics.add(sub.topic);
+            });
+            
+            const topicsArray = Array.from(topics);
+            const topicsWithSubscribers = [];
+            
+            for (const topic of topicsArray) {
+                const subscribers = await this.getTopicSubscribers(topic);
+                topicsWithSubscribers.push({
+                    name: topic,
+                    type: this.getTopicType(topic),
+                    subscribers: subscribers.length,
+                    messages: 0, // This would need to be tracked separately
+                    lastMessage: null
+                });
+            }
+            
+            return topicsWithSubscribers;
+        } catch (error) {
+            console.error('❌ Error getting all active topics:', error);
+            return [];
+        }
+    }
+
+    getTopicType(topic) {
+        if (topic.includes('device')) return 'device';
+        if (topic.includes('sensor')) return 'sensor';
+        if (topic.includes('actuator')) return 'actuator';
+        if (topic.includes('system')) return 'system';
+        return 'general';
+    }
+
     // Health check
     async isHealthy() {
         if (!this.isConnected) return false;

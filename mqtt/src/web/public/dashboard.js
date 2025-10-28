@@ -18,10 +18,25 @@ class IoTManagementPlatform {
         this.deviceDataFromRedis = new Map();
         
         this.initializeElements();
+        this.initializeAntdComponents();
         this.setupEventListeners();
         this.connectToMQTT();
         this.loadDeviceDataFromRedis();
         this.loadTopics();
+    }
+    
+    // Initialize Ant Design components
+    initializeAntdComponents() {
+        // Initialize message component for notifications
+        this.message = antd.message;
+        
+        // Initialize notification component
+        this.notification = antd.notification;
+        
+        // Initialize modal component
+        this.modal = antd.modal;
+        
+        console.log('✅ Ant Design components initialized');
     }
     
     initializeElements() {
@@ -75,9 +90,10 @@ class IoTManagementPlatform {
     
     setupEventListeners() {
         // Tab navigation
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                this.switchTab(e.target.dataset.tab);
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const tabName = e.currentTarget.dataset.tab;
+                this.switchTab(tabName);
             });
         });
         
@@ -446,6 +462,36 @@ class IoTManagementPlatform {
     
     async loadTopics() {
         try {
+            // Load active topics (broker subscriptions) instead of static topics
+            const response = await fetch('/api/topics/active');
+            const data = await response.json();
+            
+            if (data.success) {
+                this.topics.clear();
+                data.topics.forEach(topic => {
+                    this.topics.set(topic.name, {
+                        name: topic.name,
+                        type: topic.type,
+                        subscribers: topic.subscribers,
+                        messages: topic.messages,
+                        lastMessage: topic.lastMessage
+                    });
+                });
+                this.updateTopicsGrid();
+            } else {
+                console.error('❌ Failed to load active topics:', data.error);
+                // Fallback to static topics if active topics fail
+                this.loadStaticTopics();
+            }
+        } catch (error) {
+            console.error('❌ Error loading active topics:', error);
+            // Fallback to static topics
+            this.loadStaticTopics();
+        }
+    }
+    
+    async loadStaticTopics() {
+        try {
             const response = await fetch('/api/topics');
             const data = await response.json();
             
@@ -461,11 +507,9 @@ class IoTManagementPlatform {
                     });
                 });
                 this.updateTopicsGrid();
-            } else {
-                console.error('❌ Failed to load topics:', data.error);
             }
         } catch (error) {
-            console.error('❌ Error loading topics:', error);
+            console.error('❌ Error loading static topics:', error);
         }
     }
     
@@ -504,9 +548,21 @@ class IoTManagementPlatform {
         this.topicsGrid.innerHTML = topicsHTML;
     }
     
-    showTopicDetails(topicName) {
+    async showTopicDetails(topicName) {
         const topic = this.topics.get(topicName);
         if (!topic) return;
+        
+        // Get subscriber information
+        let subscribers = [];
+        try {
+            const response = await fetch(`/api/topics/${encodeURIComponent(topicName)}/subscribers`);
+            const data = await response.json();
+            if (data.success) {
+                subscribers = data.subscribers;
+            }
+        } catch (error) {
+            console.error('Error fetching subscribers:', error);
+        }
         
         this.topicModalTitle.textContent = `Topic: ${topicName}`;
         this.topicModalBody.innerHTML = `
@@ -523,6 +579,16 @@ class IoTManagementPlatform {
                 </div>
                 
                 <div class="detail-section">
+                    <h4>Active Subscribers</h4>
+                    <div class="subscribers-list">
+                        ${subscribers.length > 0 ? 
+                            subscribers.map(sub => `<div class="subscriber-item">${sub}</div>`).join('') :
+                            '<div class="no-subscribers">No active subscribers</div>'
+                        }
+                    </div>
+                </div>
+                
+                <div class="detail-section">
                     <h4>Topic Actions</h4>
                     <div class="topic-actions">
                         <button class="btn btn-success" onclick="platform.subscribeToTopic('${topicName}')">
@@ -531,12 +597,20 @@ class IoTManagementPlatform {
                         <button class="btn btn-primary" onclick="platform.publishToTopic('${topicName}')">
                             <i class="fas fa-paper-plane"></i> Publish Test Message
                         </button>
+                        <button class="btn btn-info" onclick="platform.refreshTopicSubscribers('${topicName}')">
+                            <i class="fas fa-sync"></i> Refresh Subscribers
+                        </button>
                     </div>
                 </div>
             </div>
         `;
         
         this.topicModal.style.display = 'block';
+    }
+    
+    refreshTopicSubscribers(topicName) {
+        // Refresh the topic details to get updated subscriber information
+        this.showTopicDetails(topicName);
     }
     
     subscribeToTopic(topicName) {
@@ -851,12 +925,21 @@ class IoTManagementPlatform {
     }
     
     updateConnectionStatus(connected) {
+        this.isConnected = connected;
+        const statusElement = this.connectionStatus;
+        
         if (connected) {
-            this.connectionStatus.textContent = 'Connected';
-            this.connectionStatus.className = 'status-connected';
+            statusElement.className = 'status-indicator connected';
+            statusElement.innerHTML = '<i class="fas fa-circle"></i> Connected';
+            
+            // Show success notification
+            this.message?.success('Connected to MQTT broker', 3);
         } else {
-            this.connectionStatus.textContent = 'Disconnected';
-            this.connectionStatus.className = 'status-disconnected';
+            statusElement.className = 'status-indicator disconnected';
+            statusElement.innerHTML = '<i class="fas fa-circle"></i> Disconnected';
+            
+            // Show error notification
+            this.message?.error('Disconnected from MQTT broker', 3);
         }
     }
     

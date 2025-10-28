@@ -18,7 +18,7 @@ const deviceRegistry = new Map();
 const deviceResponses = new Map();
 
 // Create MQTT client for device manager
-const client = mqtt.connect(`mqtt://14.224.166.195:${config.mqttPort}`, {
+const client = mqtt.connect(`mqtt://localhost:${config.mqttPort}`, {
   clientId: 'device-manager',
   clean: true,
   connectTimeout: 4000,
@@ -287,4 +287,4 @@ process.on('SIGINT', function () {
 });
 
 console.log('🚀 Starting Device Manager...');
-console.log(`🔗 Connecting to: mqtt://14.224.166.195:${config.mqttPort}`);
+console.log(`🔗 Connecting to: mqtt://localhost:${config.mqttPort}`);

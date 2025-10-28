@@ -2,7 +2,7 @@ const mqtt = require('mqtt');
 const config = require('../broker/config');
 
 // Test client to send sensor control commands
-const testClient = mqtt.connect(`mqtt://14.224.166.195:${config.mqttPort}`, {
+const testClient = mqtt.connect(`mqtt://localhost:${config.mqttPort}`, {
   clientId: 'sensor-control-test-' + Math.random().toString(16).substr(2, 8),
   clean: true,
   connectTimeout: 4000,
@@ -12,7 +12,7 @@ const testClient = mqtt.connect(`mqtt://14.224.166.195:${config.mqttPort}`, {
 });
 
 console.log('🚀 Starting Sensor Control Test Client...');
-console.log(`🔗 Connecting to: mqtt://14.224.166.195:${config.mqttPort}`);
+console.log(`🔗 Connecting to: mqtt://localhost:${config.mqttPort}`);
 
 testClient.on('connect', function () {
   console.log('✅ Test Client Connected');

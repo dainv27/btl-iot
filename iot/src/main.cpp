@@ -7,7 +7,7 @@ const char* ssid = "dainv_24";
 const char* password = "vannhucu@";
 
 // MQTT settings
-const char* mqtt_server = "14.224.166.195";
+const char* mqtt_server = "localhost";
 const int mqtt_port = 1883;
 const char* mqtt_topic = "iot/sensor/data";
 

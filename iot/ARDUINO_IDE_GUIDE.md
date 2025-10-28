@@ -109,6 +109,6 @@ Fake Temperature: 24.5°C, Fake Humidity: 62.3%
 ## 🎯 Lưu ý quan trọng
 
 - ✅ Đảm bảo WiFi `dainv_24` có thể truy cập
-- ✅ Kiểm tra MQTT server `14.224.166.195:1883` hoạt động
+- ✅ Kiểm tra MQTT server `localhost:1883` hoạt động
 - ✅ ESP32 sẽ gửi dữ liệu fake mỗi 5 giây
 - ✅ Dữ liệu được gửi lên topic `iot/sensor/data`

@@ -340,6 +340,11 @@ aedes.on('subscribe', function (subscriptions, client) {
   const topics = subscriptions.map(s => s.topic).join(', ');
   console.log(`[${timestamp}] 📡 Client ${client.id} subscribed to topics: ${topics}`);
   
+  // Store subscriptions in Redis
+  subscriptions.forEach(subscription => {
+    redisService.storeSubscription(client.id, subscription.topic, subscription.qos);
+  });
+  
   // Log IoT-specific subscriptions
   const iotTopics = subscriptions.filter(s => isIoTDeviceTopic(s.topic));
   if (iotTopics.length > 0) {
@@ -350,6 +355,11 @@ aedes.on('subscribe', function (subscriptions, client) {
 aedes.on('unsubscribe', function (subscriptions, client) {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] 📡 Client ${client.id} unsubscribed from topics: ${subscriptions.join(', ')}`);
+  
+  // Remove subscriptions from Redis
+  subscriptions.forEach(topic => {
+    redisService.removeSubscription(client.id, topic);
+  });
 });
 
 // Authentication handler (optional)
@@ -405,8 +415,8 @@ async function startServer() {
         console.log(`📊 Broker ID: ${aedes.id}`);
         console.log(`🔐 Authentication: ${config.requireAuth ? 'Enabled' : 'Disabled'}`);
         console.log('\n📝 Usage:');
-        console.log(`   MQTT: mqtt://14.224.166.195:${config.mqttPort}`);
-        console.log(`   WebSocket: ws://14.224.166.195:${config.wsPort}`);
+        console.log(`   MQTT: mqtt://localhost:${config.mqttPort}`);
+        console.log(`   WebSocket: ws://localhost:${config.wsPort}`);
         console.log('\n📱 IoT Device Topics:');
         console.log(`   Device Registration: ${IOT_TOPICS.DEVICE_REGISTER}`);
         console.log(`   Device Status: ${IOT_TOPICS.DEVICE_STATUS}`);
