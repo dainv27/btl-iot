@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # Production MQTT Platform
+  mqtt-platform:
+    build: .
+    container_name: mqtt-iot-platform-prod
+    ports:
+      - "1883:1883"    # MQTT port
+      - "9090:9090"    # WebSocket port
+      - "3000:3000"    # Web dashboard port
+    environment:
+      - NODE_ENV=production
+      - MQTT_PORT=1883
+      - WS_PORT=9090
+      - WEB_PORT=3000
+      - REQUIRE_AUTH=true
+      - MQTT_USERNAME=${MQTT_USERNAME:-admin}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-secure_password}
+      - BROKER_ID=${BROKER_ID:-mqtt-broker-prod}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MAX_CONNECTIONS=${MAX_CONNECTIONS:-1000}
+      - KEEP_ALIVE=${KEEP_ALIVE:-60}
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+    volumes:
+      - ./logs:/app/logs
+      - ./src/broker/config.production.js:/app/src/broker/config.js:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "const net = require('net'); const client = net.createConnection(1883, '14.224.166.195'); client.on('connect', () => { client.end(); process.exit(0); }); client.on('error', () => process.exit(1));"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mqtt-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # Redis for message persistence
+  redis:
+    image: redis:7-alpine
+    container_name: mqtt-redis-prod
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - mqtt-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+
+  # Nginx reverse proxy (optional)
+  nginx:
+    image: nginx:alpine
+    container_name: mqtt-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - mqtt-platform
+    networks:
+      - mqtt-network
+    profiles:
+      - proxy
+
+networks:
+  mqtt-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+    driver: local
