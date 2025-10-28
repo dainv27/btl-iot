@@ -42,50 +42,45 @@ class IoTManagementPlatform {
     initializeElements() {
         // Connection status
         this.connectionStatus = document.getElementById('connectionStatus');
-        this.deviceCount = document.getElementById('deviceCount');
-        
-        // Dashboard elements
-        this.devicesList = document.getElementById('devicesList');
-        this.dataStream = document.getElementById('dataStream');
-        this.alertsList = document.getElementById('alertsList');
-        this.clearDataBtn = document.getElementById('clearData');
-        this.exportDataBtn = document.getElementById('exportData');
-        
-        // Filter elements
-        this.topicFilter = document.getElementById('topicFilter');
-        this.deviceFilter = document.getElementById('deviceFilter');
-        this.dataTypeFilter = document.getElementById('dataTypeFilter');
-        this.clearFiltersBtn = document.getElementById('clearFilters');
         
         // Device management elements
         this.devicesGrid = document.getElementById('devicesGrid');
-        this.refreshDevicesBtn = document.getElementById('refreshDevices');
-        this.addDeviceBtn = document.getElementById('addDevice');
+        this.refreshDevicesBtn = document.getElementById('refreshDevicesBtn');
+        this.addDeviceBtn = document.getElementById('addDeviceBtn');
         this.deviceModal = document.getElementById('deviceModal');
-        this.modalTitle = document.getElementById('modalTitle');
-        this.modalBody = document.getElementById('modalBody');
+        this.deviceModalTitle = document.getElementById('deviceModalTitle');
+        this.deviceModalBody = document.getElementById('deviceModalBody');
         
         // Control elements
         this.controlDeviceSelect = document.getElementById('controlDeviceSelect');
-        this.controlInterface = document.getElementById('controlInterface');
-        this.refreshControlDevicesBtn = document.getElementById('refreshControlDevices');
+        this.refreshControlBtn = document.getElementById('refreshControlBtn');
+        this.turnOnBtn = document.getElementById('turnOnBtn');
+        this.turnOffBtn = document.getElementById('turnOffBtn');
+        this.restartBtn = document.getElementById('restartBtn');
+        this.tempThreshold = document.getElementById('tempThreshold');
+        this.humidityThreshold = document.getElementById('humidityThreshold');
+        this.setTempBtn = document.getElementById('setTempBtn');
+        this.setHumidityBtn = document.getElementById('setHumidityBtn');
         
         // Logs elements
-        this.logsList = document.getElementById('logsList');
+        this.logsContainer = document.getElementById('logsContainer');
         this.logDeviceSelect = document.getElementById('logDeviceSelect');
         this.logLevelSelect = document.getElementById('logLevelSelect');
-        this.logDateRange = document.getElementById('logDateRange');
-        this.refreshLogsBtn = document.getElementById('refreshLogs');
-        this.exportLogsBtn = document.getElementById('exportLogs');
-        this.applyLogFiltersBtn = document.getElementById('applyLogFilters');
+        this.logDateFrom = document.getElementById('logDateFrom');
+        this.logDateTo = document.getElementById('logDateTo');
+        this.refreshLogsBtn = document.getElementById('refreshLogsBtn');
+        this.exportLogsBtn = document.getElementById('exportLogsBtn');
+        this.applyLogFiltersBtn = document.getElementById('applyLogFiltersBtn');
         
         // Topics elements
         this.topicsGrid = document.getElementById('topicsGrid');
-        this.refreshTopicsBtn = document.getElementById('refreshTopics');
-        this.addTopicBtn = document.getElementById('addTopic');
+        this.refreshTopicsBtn = document.getElementById('refreshTopicsBtn');
+        this.addTopicBtn = document.getElementById('addTopicBtn');
         this.topicModal = document.getElementById('topicModal');
         this.topicModalTitle = document.getElementById('topicModalTitle');
         this.topicModalBody = document.getElementById('topicModalBody');
+        this.addTopicModal = document.getElementById('addTopicModal');
+        this.addTopicForm = document.getElementById('addTopicForm');
     }
     
     setupEventListeners() {
@@ -97,51 +92,75 @@ class IoTManagementPlatform {
             });
         });
         
-        // Dashboard events
-        this.clearDataBtn.addEventListener('click', () => this.clearData());
-        this.exportDataBtn.addEventListener('click', () => this.exportData());
-        this.clearFiltersBtn.addEventListener('click', () => this.clearFilters());
-        
-        // Filter event listeners
-        this.topicFilter.addEventListener('change', (e) => {
-            this.filters.topic = e.target.value;
-            this.applyFilters();
-        });
-        
-        this.deviceFilter.addEventListener('change', (e) => {
-            this.filters.deviceId = e.target.value;
-            this.applyFilters();
-        });
-        
-        this.dataTypeFilter.addEventListener('change', (e) => {
-            this.filters.dataType = e.target.value;
-            this.applyFilters();
-        });
-        
         // Device management events
-        this.refreshDevicesBtn.addEventListener('click', () => this.loadDeviceDataFromRedis());
-        this.addDeviceBtn.addEventListener('click', () => this.showAddDeviceModal());
+        if (this.refreshDevicesBtn) {
+            this.refreshDevicesBtn.addEventListener('click', () => this.loadDeviceDataFromRedis());
+        }
+        if (this.addDeviceBtn) {
+            this.addDeviceBtn.addEventListener('click', () => this.showAddDeviceModal());
+        }
         
         // Control events
-        this.controlDeviceSelect.addEventListener('change', (e) => {
-            this.loadDeviceControlInterface(e.target.value);
-        });
-        this.refreshControlDevicesBtn.addEventListener('click', () => this.loadControlDevices());
+        if (this.refreshControlBtn) {
+            this.refreshControlBtn.addEventListener('click', () => this.loadControlDevices());
+        }
+        if (this.controlDeviceSelect) {
+            this.controlDeviceSelect.addEventListener('change', (e) => {
+                this.selectedDevice = e.target.value;
+                this.loadDeviceControlInterface(e.target.value);
+            });
+        }
+        
+        if (this.turnOnBtn) {
+            this.turnOnBtn.addEventListener('click', () => this.sendDeviceCommand('turn_on'));
+        }
+        if (this.turnOffBtn) {
+            this.turnOffBtn.addEventListener('click', () => this.sendDeviceCommand('turn_off'));
+        }
+        if (this.restartBtn) {
+            this.restartBtn.addEventListener('click', () => this.sendDeviceCommand('restart'));
+        }
+        
+        if (this.setTempBtn) {
+            this.setTempBtn.addEventListener('click', () => this.setSensorThreshold('temperature'));
+        }
+        if (this.setHumidityBtn) {
+            this.setHumidityBtn.addEventListener('click', () => this.setSensorThreshold('humidity'));
+        }
         
         // Logs events
-        this.refreshLogsBtn.addEventListener('click', () => this.loadLogs());
-        this.exportLogsBtn.addEventListener('click', () => this.exportLogs());
-        this.applyLogFiltersBtn.addEventListener('click', () => this.applyLogFilters());
+        if (this.refreshLogsBtn) {
+            this.refreshLogsBtn.addEventListener('click', () => this.loadLogs());
+        }
+        if (this.exportLogsBtn) {
+            this.exportLogsBtn.addEventListener('click', () => this.exportLogs());
+        }
+        if (this.applyLogFiltersBtn) {
+            this.applyLogFiltersBtn.addEventListener('click', () => this.applyLogFilters());
+        }
         
         // Topics events
-        this.refreshTopicsBtn.addEventListener('click', () => this.loadTopics());
-        this.addTopicBtn.addEventListener('click', () => this.showAddTopicModal());
+        if (this.refreshTopicsBtn) {
+            this.refreshTopicsBtn.addEventListener('click', () => this.loadTopics());
+        }
+        if (this.addTopicBtn) {
+            this.addTopicBtn.addEventListener('click', () => this.showAddTopicModal());
+        }
         
         // Modal events
         document.querySelectorAll('.close').forEach(closeBtn => {
             closeBtn.addEventListener('click', () => this.closeModals());
         });
         
+        // Add topic form
+        if (this.addTopicForm) {
+            this.addTopicForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.subscribeToNewTopic();
+            });
+        }
+        
+        // Close modals when clicking outside
         window.addEventListener('click', (e) => {
             if (e.target.classList.contains('modal')) {
                 this.closeModals();
@@ -151,20 +170,26 @@ class IoTManagementPlatform {
     
     switchTab(tabName) {
         // Hide all tab contents
-        document.querySelectorAll('.tab-content').forEach(content => {
+        document.querySelectorAll('.tab-panel').forEach(content => {
             content.classList.remove('active');
         });
         
-        // Remove active class from all tab buttons
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.classList.remove('active');
+        // Remove active class from all tabs
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.classList.remove('active');
         });
         
         // Show selected tab content
-        document.getElementById(tabName).classList.add('active');
+        const selectedContent = document.getElementById(tabName);
+        if (selectedContent) {
+            selectedContent.classList.add('active');
+        }
         
-        // Add active class to selected tab button
-        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+        // Add active class to selected tab
+        const selectedTab = document.querySelector(`[data-tab="${tabName}"]`);
+        if (selectedTab) {
+            selectedTab.classList.add('active');
+        }
         
         // Load data for specific tabs
         switch(tabName) {
