@@ -1,0 +1,107 @@
+/* App Layout Styles */
+.app-layout {
+  min-height: 100vh;
+  background: #ffffff;
+}
+
+.app-header {
+  background: #ffffff;
+  border-bottom: 1px solid #e9ecef;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  padding: 0 24px;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1400px;
+  margin: 0 auto;
+  height: 64px;
+}
+
+.logo-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon {
+  font-size: 24px;
+  color: #1890ff;
+}
+
+.logo-title {
+  margin: 0 !important;
+  color: #262626;
+  font-weight: 600;
+}
+
+.api-status {
+  display: flex;
+  align-items: center;
+}
+
+.main-layout {
+  background: #ffffff;
+  padding: 24px;
+}
+
+.tab-bar {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.tab-button {
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.main-content {
+  background: #ffffff;
+  min-height: calc(100vh - 200px);
+}
+
+.content-card {
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e9ecef;
+}
+
+.device-stats {
+  margin-bottom: 16px;
+}
+
+.devices-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .main-layout {
+    padding: 16px;
+  }
+  
+  .tab-bar {
+    padding: 12px;
+  }
+  
+  .tab-button {
+    height: 36px;
+    padding: 0 16px;
+    font-size: 14px;
+  }
+  
+  .header-content {
+    flex-direction: column;
+    gap: 12px;
+    height: auto;
+    padding: 16px 0;
+  }
+}
