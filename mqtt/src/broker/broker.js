@@ -21,6 +21,29 @@ wsServer.on('connection', function (socket) {
   aedes.handle(stream);
 });
 
+// WebSocket server for real-time data (logs, device data)
+const realtimeWsServer = new ws.Server({ port: config.wsPort + 1 }); // Port 9091
+const realtimeClients = new Set();
+
+// WebSocket server for real-time data
+realtimeWsServer.on('connection', function (socket) {
+  console.log('📡 Real-time WebSocket client connected');
+  realtimeClients.add(socket);
+  
+  // Send initial data when client connects
+  sendInitialData(socket);
+  
+  socket.on('close', () => {
+    console.log('📡 Real-time WebSocket client disconnected');
+    realtimeClients.delete(socket);
+  });
+  
+  socket.on('error', (error) => {
+    console.error('❌ Real-time WebSocket error:', error);
+    realtimeClients.delete(socket);
+  });
+});
+
 // IoT Device Topic Structure
 const IOT_TOPICS = {
   DEVICE_REGISTER: 'iot/device/register',
@@ -54,6 +77,51 @@ function extractDeviceId(topic) {
     }
   }
   return null;
+}
+
+// WebSocket utility functions
+function sendToRealtimeClients(message) {
+  const messageStr = JSON.stringify(message);
+  realtimeClients.forEach(client => {
+    if (client.readyState === ws.OPEN) {
+      try {
+        client.send(messageStr);
+      } catch (error) {
+        console.error('❌ Error sending to WebSocket client:', error);
+        realtimeClients.delete(client);
+      }
+    }
+  });
+}
+
+async function sendInitialData(socket) {
+  try {
+    // Send current devices
+    const devices = await redisService.getAllDevices();
+    socket.send(JSON.stringify({
+      type: 'devices',
+      data: devices,
+      timestamp: new Date().toISOString()
+    }));
+    
+    // Send recent logs
+    const logs = await redisService.getAllLogs(50);
+    socket.send(JSON.stringify({
+      type: 'logs',
+      data: logs,
+      timestamp: new Date().toISOString()
+    }));
+    
+    // Send recent topics
+    const topics = await redisService.getAllActiveTopics();
+    socket.send(JSON.stringify({
+      type: 'topics',
+      data: topics,
+      timestamp: new Date().toISOString()
+    }));
+  } catch (error) {
+    console.error('❌ Error sending initial data:', error);
+  }
 }
 
 // Utility function to format IoT data for logging
@@ -153,6 +221,15 @@ aedes.on('client', function (client) {
     data: { clientId: client.id, timestamp: timestamp }
   });
   
+  // Send real-time notification
+  sendToRealtimeClients({
+    type: 'client_connected',
+    data: {
+      clientId: client.id,
+      timestamp: timestamp
+    }
+  });
+  
   // Check if this is an IoT device based on client ID pattern
   if (client.id.startsWith('iot-') || client.id.includes('device')) {
     connectedDevices.set(client.id, {
@@ -185,6 +262,15 @@ aedes.on('clientDisconnect', function (client) {
     message: `Client disconnected: ${client.id}`,
     topic: 'system/disconnection',
     data: { clientId: client.id, timestamp: timestamp }
+  });
+  
+  // Send real-time notification
+  sendToRealtimeClients({
+    type: 'client_disconnected',
+    data: {
+      clientId: client.id,
+      timestamp: timestamp
+    }
   });
   
   if (connectedDevices.has(client.id)) {
@@ -232,13 +318,36 @@ aedes.on('publish', function (packet, client) {
         }
         
         // Log message to Redis
-        redisService.storeLog({
+        const logEntry = {
           deviceId: deviceId,
           level: 'info',
           message: `Message published to ${packet.topic}`,
           topic: packet.topic,
           data: iotData.data
+        };
+        redisService.storeLog(logEntry);
+        
+        // Send real-time log to WebSocket clients
+        sendToRealtimeClients({
+          type: 'log',
+          data: {
+            ...logEntry,
+            timestamp: timestamp
+          }
         });
+        
+        // Send real-time sensor data to WebSocket clients
+        if (packet.topic.includes('sensor/data')) {
+          sendToRealtimeClients({
+            type: 'sensor_data',
+            data: {
+              deviceId: deviceId,
+              topic: packet.topic,
+              timestamp: timestamp,
+              data: iotData.data
+            }
+          });
+        }
       }
       
       // Update topic statistics
@@ -412,11 +521,13 @@ async function startServer() {
     server.listen(config.mqttPort, function () {
         console.log(`🚀 MQTT Broker started on port ${config.mqttPort}`);
         console.log(`🌐 WebSocket server started on port ${config.wsPort}`);
+        console.log(`📡 Real-time WebSocket server started on port ${config.wsPort + 1}`);
         console.log(`📊 Broker ID: ${aedes.id}`);
         console.log(`🔐 Authentication: ${config.requireAuth ? 'Enabled' : 'Disabled'}`);
         console.log('\n📝 Usage:');
         console.log(`   MQTT: mqtt://localhost:${config.mqttPort}`);
         console.log(`   WebSocket: ws://localhost:${config.wsPort}`);
+        console.log(`   Real-time WebSocket: ws://localhost:${config.wsPort + 1}`);
         console.log('\n📱 IoT Device Topics:');
         console.log(`   Device Registration: ${IOT_TOPICS.DEVICE_REGISTER}`);
         console.log(`   Device Status: ${IOT_TOPICS.DEVICE_STATUS}`);

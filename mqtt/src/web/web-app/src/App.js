@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Layout, Typography, Card, Button, Space, Row, Col, Statistic, Tag, Spin, Alert, Switch, Tooltip, Badge, Divider, Select, Input, Table, Timeline, Form, InputNumber, Switch as AntSwitch, message } from 'antd';
 import { DesktopOutlined, ControlOutlined, FileTextOutlined, SendOutlined, ReloadOutlined, ClockCircleOutlined, WifiOutlined, WifiOutlined as WifiOffOutlined, SearchOutlined, FilterOutlined, SendOutlined as SendIcon } from '@ant-design/icons';
 import axios from 'axios';
+import DeviceChart from './components/DeviceChart';
+import { WebSocketProvider, useRealtimeData } from './contexts/WebSocketContext';
 import './App.css';
 
 const { Header, Content } = Layout;
@@ -9,11 +11,12 @@ const { Title, Text } = Typography;
 const { Option } = Select;
 const { Search } = Input;
 
-function App() {
+const AppContent = () => {
+  // WebSocket real-time data
+  const { devices, logs, topics, connectionStatus, isConnected } = useRealtimeData();
+  
+  // State management
   const [activeTab, setActiveTab] = useState('devices');
-  const [devices, setDevices] = useState([]);
-  const [logs, setLogs] = useState([]);
-  const [topics, setTopics] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [apiStatus, setApiStatus] = useState(null);
@@ -31,6 +34,9 @@ function App() {
   const [commandTopic, setCommandTopic] = useState('');
   const [commandData, setCommandData] = useState('');
   const [sendingCommand, setSendingCommand] = useState(false);
+  
+  // Chart states
+  const [chartSelectedDevice, setChartSelectedDevice] = useState('');
   
   const refreshIntervalRef = useRef(null);
 
@@ -262,40 +268,77 @@ function App() {
     switch (activeTab) {
       case 'devices':
         return (
-          <Card 
-            title={
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Device Management</span>
-                <Space>
-                  <Tooltip title="Auto-refresh every 5 seconds">
-                    <Switch 
-                      checked={autoRefresh} 
-                      onChange={setAutoRefresh}
-                      checkedChildren="Auto"
-                      unCheckedChildren="Manual"
-                    />
-                  </Tooltip>
-                  <Button 
-                    type="primary" 
-                    icon={<ReloadOutlined />} 
-                    onClick={loadDevices} 
-                    loading={loading}
-                    size="small"
-                  >
-                    Refresh
-                  </Button>
-                </Space>
-              </div>
-            }
-            className="content-card"
-            extra={
-              lastRefresh && (
-                <Text type="secondary" style={{ fontSize: '12px' }}>
-                  <ClockCircleOutlined /> Last updated: {lastRefresh.toLocaleTimeString()}
-                </Text>
-              )
-            }
-          >
+          <div>
+            {/* Device Chart Section */}
+            <Card 
+              title="📊 Biểu đồ dữ liệu thiết bị"
+              style={{ marginBottom: 16 }}
+              extra={
+                <Select
+                  placeholder="Chọn thiết bị để xem biểu đồ"
+                  style={{ width: 300 }}
+                  value={chartSelectedDevice}
+                  onChange={setChartSelectedDevice}
+                  showSearch
+                  filterOption={(input, option) =>
+                    option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                  }
+                >
+                  {devices.map(device => (
+                    <Option key={device.deviceId} value={device.deviceId}>
+                      <Space>
+                        <Badge 
+                          status={device.status === 'online' ? 'success' : 'error'} 
+                          text={device.deviceId}
+                        />
+                        <Text type="secondary">({device.deviceType})</Text>
+                      </Space>
+                    </Option>
+                  ))}
+                </Select>
+              }
+            >
+              <DeviceChart 
+                selectedDevice={chartSelectedDevice} 
+                refreshInterval={refreshInterval}
+              />
+            </Card>
+
+            {/* Device Management Section */}
+            <Card 
+              title={
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Device Management</span>
+                  <Space>
+                    <Tooltip title="Auto-refresh every 5 seconds">
+                      <Switch 
+                        checked={autoRefresh} 
+                        onChange={setAutoRefresh}
+                        checkedChildren="Auto"
+                        unCheckedChildren="Manual"
+                      />
+                    </Tooltip>
+                    <Button 
+                      type="primary" 
+                      icon={<ReloadOutlined />} 
+                      onClick={loadDevices} 
+                      loading={loading}
+                      size="small"
+                    >
+                      Refresh
+                    </Button>
+                  </Space>
+                </div>
+              }
+              className="content-card"
+              extra={
+                lastRefresh && (
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    <ClockCircleOutlined /> Last updated: {lastRefresh.toLocaleTimeString()}
+                  </Text>
+                )
+              }
+            >
             <div className="device-stats">
               <Row gutter={16}>
                 <Col span={6}>
@@ -449,6 +492,7 @@ function App() {
               </div>
             )}
           </Card>
+          </div>
         );
       case 'control':
         return (
@@ -946,11 +990,16 @@ function App() {
           </div>
           
           <div className="api-status">
-            {apiStatus ? (
-              <Tag color="green">API Connected</Tag>
-            ) : (
-              <Tag color="red">API Disconnected</Tag>
-            )}
+            <Space>
+              {apiStatus ? (
+                <Tag color="green">API Connected</Tag>
+              ) : (
+                <Tag color="red">API Disconnected</Tag>
+              )}
+              <Tag color={isConnected ? 'green' : 'red'}>
+                WebSocket {isConnected ? 'Connected' : 'Disconnected'}
+              </Tag>
+            </Space>
           </div>
         </div>
       </Header>
@@ -993,6 +1042,14 @@ function App() {
       </Layout>
     </Layout>
   );
-}
+};
+
+const App = () => {
+  return (
+    <WebSocketProvider>
+      <AppContent />
+    </WebSocketProvider>
+  );
+};
 
 export default App;

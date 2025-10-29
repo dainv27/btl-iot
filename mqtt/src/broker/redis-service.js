@@ -191,8 +191,16 @@ class RedisService {
                 })
             });
             
-            // Keep only last 1000 entries per device
-            await this.client.zRemRangeByRank(timeSeriesKey, 0, -1001);
+            // Keep only last 1000 entries per device (remove oldest entries)
+            try {
+                const count = await this.client.zCard(timeSeriesKey);
+                if (count > 1000) {
+                    // Remove oldest entries (first count-1000 entries)
+                    await this.client.zRemRangeByScore(timeSeriesKey, '-inf', '+inf', { LIMIT: { offset: 0, count: count - 1000 } });
+                }
+            } catch (cleanupError) {
+                console.warn('⚠️ Warning: Could not cleanup old sensor data entries:', cleanupError.message);
+            }
             
             // Set expiration (30 days)
             await this.client.expire(key, 30 * 24 * 60 * 60);
@@ -231,7 +239,8 @@ class RedisService {
         
         try {
             const timeSeriesKey = `sensor_timeseries:${deviceId}`;
-            const data = await this.client.zRevRange(timeSeriesKey, 0, limit - 1);
+            // Use zRange with REV option to get latest data first
+            const data = await this.client.zRange(timeSeriesKey, 0, limit - 1, { REV: true });
             
             return data.map(item => JSON.parse(item));
         } catch (error) {
