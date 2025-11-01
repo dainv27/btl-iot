@@ -9,6 +9,7 @@
     "dev": "nodemon broker.js",
     "test": "node ../clients/test-client.js",
     "test:iot": "node iot-device-client.js",
+    "test:iot-pir": "node iot-device-pir-client.js",
     "test:sensor-control": "node ../clients/sensor-control-test.js",
     "comprehensive-test": "node ../clients/comprehensive-test.js",
     "manager": "node ../clients/device-manager.js",

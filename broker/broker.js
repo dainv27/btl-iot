@@ -552,22 +552,146 @@ app.get('/api/sensor-data/:deviceId', async (req, res) => {
     
     const sensorData = sensorDataObj.data;
     
-    res.json({
-      success: true,
-      data: {
-        deviceId: sensorData.deviceId || deviceId,
-        temperature: sensorData.temperature,
-        humidity: sensorData.humidity,
-        timestamp: sensorData.timestamp || sensorDataObj.timestamp
-      },
-      timestamp: new Date().toISOString()
-    });
+    // Check if device is PIR type (has action, source, target fields or device ID is iot-device-tunghv)
+    const isPirDevice = deviceId === 'iot-device-tunghv' || 
+                        sensorData.action !== undefined || 
+                        sensorData.source === 'pir';
+    
+    if (isPirDevice) {
+      // Ensure timestamp is a number for chart compatibility
+      let timestamp = sensorData.ts || sensorData.timestamp || sensorDataObj.timestamp;
+      if (typeof timestamp === 'string') {
+        timestamp = Date.parse(timestamp) || Date.now();
+      } else if (typeof timestamp !== 'number') {
+        timestamp = Date.now();
+      }
+      
+      res.json({
+        success: true,
+        data: {
+          deviceId: sensorData.deviceId || deviceId,
+          ts: timestamp,
+          source: sensorData.source || 'pir',
+          action: sensorData.action,
+          target: sensorData.target || 'pir',
+          value: sensorData.value,
+          detail: sensorData.detail || {},
+          timestamp: timestamp
+        },
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.json({
+        success: true,
+        data: {
+          deviceId: sensorData.deviceId || deviceId,
+          temperature: sensorData.temperature,
+          humidity: sensorData.humidity,
+          timestamp: sensorData.timestamp || sensorDataObj.timestamp
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
   } catch (error) {
     console.error('Error getting sensor data:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get sensor data',
       data: null,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.get('/api/sensor-data/:deviceId/history', async (req, res) => {
+  try {
+    if (!redisService.isConnected) {
+      return res.status(503).json({
+        success: false,
+        error: 'Redis service is not available',
+        data: [],
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    const { deviceId } = req.params;
+    const limit = parseInt(req.query.limit) || 50;
+    
+    const history = await redisService.getSensorDataHistory(deviceId, limit);
+    
+    if (!history || history.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    // Check if device is PIR type (device ID is iot-device-tunghv or has PIR fields)
+    const isPirDevice = deviceId === 'iot-device-tunghv' || 
+                        (history[0] && (history[0].action !== undefined || history[0].source === 'pir'));
+    
+    const processedHistory = history.map(item => {
+      // Handle different storage formats (item may be { timestamp, data: {...} } or directly data object)
+      let data = item;
+      if (item.data) {
+        data = { ...item.data, timestamp: item.timestamp };
+      }
+      
+      if (isPirDevice) {
+        // Ensure timestamp is a number for chart compatibility
+        let timestamp = data.ts || data.timestamp;
+        if (typeof timestamp === 'string') {
+          timestamp = Date.parse(timestamp) || Date.now();
+        } else if (typeof timestamp !== 'number') {
+          timestamp = Date.now();
+        }
+        
+        return {
+          deviceId: data.deviceId || deviceId,
+          ts: timestamp,
+          source: data.source || 'pir',
+          action: data.action,
+          target: data.target || 'pir',
+          value: data.value,
+          detail: data.detail || {},
+          timestamp: timestamp
+        };
+      } else {
+        let timestamp = data.timestamp;
+        if (typeof timestamp === 'string') {
+          timestamp = Date.parse(timestamp) || Date.now();
+        } else if (typeof timestamp !== 'number') {
+          timestamp = Date.now();
+        }
+        
+        return {
+          deviceId: data.deviceId || deviceId,
+          temperature: data.temperature,
+          humidity: data.humidity,
+          timestamp: timestamp
+        };
+      }
+    });
+    
+    // Sort by timestamp ascending (oldest first) for proper chart display
+    processedHistory.sort((a, b) => {
+      const timeA = typeof a.timestamp === 'number' ? a.timestamp : Date.parse(a.timestamp);
+      const timeB = typeof b.timestamp === 'number' ? b.timestamp : Date.parse(b.timestamp);
+      return timeA - timeB;
+    });
+    
+    res.json({
+      success: true,
+      data: processedHistory,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error getting sensor data history:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get sensor data history',
+      data: [],
       timestamp: new Date().toISOString()
     });
   }
