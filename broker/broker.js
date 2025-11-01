@@ -890,15 +890,15 @@ async function startServer() {
     // Start the web server
     webServerInstance = app.listen(config.webPort, () => {
         console.log(`\n🌐 Web Dashboard started on port ${config.webPort}`);
-        console.log(`📊 Dashboard: http://localhost:${config.webPort}`);
-        console.log(`📡 API Status: http://localhost:${config.webPort}/api/status`);
-        console.log(`🔗 Devices API: http://localhost:${config.webPort}/api/devices`);
-        console.log(`📝 Logs API: http://localhost:${config.webPort}/api/logs`);
-        console.log(`📡 Topics API: http://localhost:${config.webPort}/api/topics`);
-        console.log(`💚 Health Check: http://localhost:${config.webPort}/api/health`);
+        console.log(`📊 Dashboard: http://202corp.com:${config.webPort}`);
+        console.log(`📡 API Status: http://202corp.com:${config.webPort}/api/status`);
+        console.log(`🔗 Devices API: http://202corp.com:${config.webPort}/api/devices`);
+        console.log(`📝 Logs API: http://202corp.com:${config.webPort}/api/logs`);
+        console.log(`📡 Topics API: http://202corp.com:${config.webPort}/api/topics`);
+        console.log(`💚 Health Check: http://202corp.com:${config.webPort}/api/health`);
         console.log('\n📝 MQTT Usage:');
-        console.log(`   MQTT: mqtt://localhost:${config.mqttPort}`);
-        console.log(`   WebSocket: ws://localhost:${config.wsPort}`);
+        console.log(`   MQTT: mqtt://202corp.com:${config.mqttPort}`);
+        console.log(`   WebSocket: ws://202corp.com:${config.wsPort}`);
         console.log('\n📱 IoT Device Topics:');
         console.log(`   Device Registration: ${IOT_TOPICS.DEVICE_REGISTER}`);
         console.log(`   Device Status: ${IOT_TOPICS.DEVICE_STATUS}`);

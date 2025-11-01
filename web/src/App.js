@@ -9,7 +9,7 @@ const { Title, Text } = Typography;
 const { Option } = Select;
 const { Search } = Input;
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://202corp.com:3001';
 const API_BASE_PATH = `${API_BASE_URL}/api`;
 
 function App() {
@@ -474,7 +474,7 @@ function App() {
     { key: 'devices', label: 'Thiết bị', icon: <DesktopOutlined /> },
     { key: 'control', label: 'Điều khiển', icon: <ControlOutlined /> },
     { key: 'logs', label: 'Nhật ký', icon: <FileTextOutlined /> },
-    { key: 'topics', label: 'Chủ đề', icon: <SendOutlined /> }
+    { key: 'topics', label: 'Topic', icon: <SendOutlined /> }
   ];
 
   const renderContent = () => {
@@ -1418,7 +1418,7 @@ function App() {
           <Card 
             title={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>MQTT Chủ đề</span>
+                <span>MQTT Topic</span>
                 <Space>
                   <Tooltip title="Tự động làm mới mỗi 5 giây">
                     <Switch 
@@ -1457,14 +1457,14 @@ function App() {
                 </Col>
                 <Col span={6}>
                   <Statistic 
-                    title="Chủ đề thiết bị" 
+                    title="Topic thiết bị" 
                     value={topics.filter(t => t.type === 'device').length}
                     valueStyle={{ color: '#1890ff' }}
                   />
                 </Col>
                 <Col span={6}>
                   <Statistic 
-                    title="Chủ đề cảm biến" 
+                    title="Topic cảm biến" 
                     value={topics.filter(t => t.type === 'sensor').length}
                     valueStyle={{ color: '#52c41a' }}
                   />

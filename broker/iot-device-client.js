@@ -24,7 +24,7 @@ const DEVICE_CONFIG = {
 };
 
 // MQTT host configuration
-const mqttHost = process.env.MQTT_HOST || config.mqttHost || 'localhost';
+const mqttHost = process.env.MQTT_HOST || config.mqttHost || '202corp.com';
 
 // Create MQTT client for IoT device
 const mqttPort = parseInt(process.env.MQTT_PORT) || config.mqttPort || 1883;

@@ -1,6 +1,6 @@
 module.exports = {
   // MQTT broker configuration
-  mqttHost: process.env.MQTT_HOST || 'localhost',
+  mqttHost: process.env.MQTT_HOST || '202corp.com',
   mqttPort: parseInt(process.env.MQTT_PORT) || 1883,
   wsPort: parseInt(process.env.WS_PORT) || 9090,
   webPort: parseInt(process.env.WEB_PORT) || 3001,

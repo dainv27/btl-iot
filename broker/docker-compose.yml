@@ -27,7 +27,7 @@ services:
       - ../web/public:/app/../web/public:ro
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "const net = require('net'); const client = net.createConnection(1883, 'localhost'); client.on('connect', () => { client.end(); process.exit(0); }); client.on('error', () => process.exit(1));"]
+      test: ["CMD", "node", "-e", "const net = require('net'); const client = net.createConnection(1883, '202corp.com'); client.on('connect', () => { client.end(); process.exit(0); }); client.on('error', () => process.exit(1));"]
       interval: 30s
       timeout: 10s
       retries: 3
