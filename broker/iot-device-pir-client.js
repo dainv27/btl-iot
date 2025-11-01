@@ -1,33 +1,29 @@
 const mqtt = require('mqtt');
 const config = require('./config');
 
-// IoT Device Topics
 const IOT_TOPICS = {
   DEVICE_REGISTER: 'iot/device/register',
   DEVICE_STATUS: 'iot/device/status',
   DEVICE_DATA: 'iot/device/data',
   DEVICE_COMMAND: 'iot/device/command',
   DEVICE_RESPONSE: 'iot/device/response',
-  SENSOR_DATA: 'iot/sensor/data', // Base topic for sensor data
-  SENSOR_CTL: 'iot/sensor/ctl',   // Base topic for sensor control
+  SENSOR_DATA: 'iot/sensor/data',
+  SENSOR_CTL: 'iot/sensor/ctl',
   ACTUATOR_CONTROL: 'iot/actuator/control',
   DEVICE_HEARTBEAT: 'iot/device/heartbeat'
 };
 
-// Device configuration
 const DEVICE_CONFIG = {
-  deviceId: 'dainv-enviromenet-sonsor',
-  deviceType: 'sensor',
+  deviceId: 'iot-device-tunghv',
+  deviceType: 'pir',
   location: 'office',
   firmware: '1.0.0',
-  capabilities: ['temperature', 'humidity', 'light']
+  capabilities: ['motion_detection', 'pir']
 };
 
-// MQTT host configuration
 const mqttHost = process.env.MQTT_HOST || config.mqttHost || 'localhost';
-
-// Create MQTT client for IoT device
 const mqttPort = parseInt(process.env.MQTT_PORT) || config.mqttPort || 1883;
+
 const client = mqtt.connect(`mqtt://${mqttHost}:${mqttPort}`, {
   clientId: DEVICE_CONFIG.deviceId,
   clean: true,
@@ -47,13 +43,11 @@ const client = mqtt.connect(`mqtt://${mqttHost}:${mqttPort}`, {
   }
 });
 
-// Connection event handlers
 client.on('connect', function () {
   console.log(`[DEBUG] MQTT client connected`);
-  console.log(`✅ IoT Device Connected: ${DEVICE_CONFIG.deviceId}`);
-  console.log(`[DEBUG] Connected to broker at: mqtt://${mqttHost}:${config.mqttPort}`);
+  console.log(`✅ PIR Device Connected: ${DEVICE_CONFIG.deviceId}`);
+  console.log(`[DEBUG] Connected to broker at: mqtt://${mqttHost}:${mqttPort}`);
   
-  // Subscribe to device-specific topics
   const deviceCommandTopic = `iot/device/${DEVICE_CONFIG.deviceId}/command`;
   console.log(`[DEBUG] Subscribing to device command topic: ${deviceCommandTopic}`);
   client.subscribe(deviceCommandTopic, { qos: 1 }, function (err) {
@@ -65,7 +59,6 @@ client.on('connect', function () {
     }
   });
   
-  // Subscribe to sensor control topic for this specific device: iot/sensor/ctl/{deviceId}
   const sensorControlTopic = `${IOT_TOPICS.SENSOR_CTL}/${DEVICE_CONFIG.deviceId}`;
   console.log(`[DEBUG] Subscribing to sensor control topic: ${sensorControlTopic}`);
   client.subscribe(sensorControlTopic, { qos: 1 }, function (err) {
@@ -83,23 +76,19 @@ client.on('connect', function () {
     }
   });
   
-  // Register device
   setTimeout(() => {
     registerDevice();
   }, 1000);
   
-  // Send periodic sensor data
   setInterval(() => {
-    sendSensorData();
+    sendPirData();
   }, 5000);
   
-  // Send heartbeat
   setInterval(() => {
     sendHeartbeat();
   }, 30000);
 });
 
-// Device registration
 function registerDevice() {
   const registrationData = {
     deviceId: DEVICE_CONFIG.deviceId,
@@ -114,7 +103,6 @@ function registerDevice() {
   client.publish(IOT_TOPICS.DEVICE_REGISTER, JSON.stringify(registrationData), { qos: 1 });
   console.log(`📋 Device Registration Sent: ${JSON.stringify(registrationData, null, 2)}`);
   
-  // Update device status
   client.publish(IOT_TOPICS.DEVICE_STATUS, JSON.stringify({
     deviceId: DEVICE_CONFIG.deviceId,
     status: 'online',
@@ -122,22 +110,30 @@ function registerDevice() {
   }), { qos: 1, retain: true });
 }
 
-// Send sensor data
-function sendSensorData() {
-  const sensorData = {
+function sendPirData() {
+  const actions = ['motion_start', 'motion_stop'];
+  const action = Math.random() > 0.5 ? actions[0] : actions[1];
+  const value = action === 'motion_start' ? 1 : 0;
+  const state = action === 'motion_start' ? 'motion' : 'idle';
+  
+  const pirData = {
     deviceId: DEVICE_CONFIG.deviceId,
-    temperature: parseFloat((20 + Math.random() * 10).toFixed(1)),
-    humidity: Math.round(40 + Math.random() * 30),
-    timestamp: Date.now()
+    ts: Date.now(),
+    source: 'pir',
+    action: action,
+    target: 'pir',
+    value: value,
+    detail: {
+      index: Math.floor(Math.random() * 8) + 1,
+      state: state
+    }
   };
   
-  // Send to device-specific sensor data topic
   const sensorDataTopic = `${IOT_TOPICS.SENSOR_DATA}/${DEVICE_CONFIG.deviceId}`;
-  client.publish(sensorDataTopic, JSON.stringify(sensorData), { qos: 1 });
-  console.log(`🌡️  Sensor Data Sent to ${sensorDataTopic}: Temperature=${sensorData.temperature}°C, Humidity=${sensorData.humidity}%, Timestamp=${sensorData.timestamp}`);
+  client.publish(sensorDataTopic, JSON.stringify(pirData), { qos: 1 });
+  console.log(`📡 PIR Data Sent to ${sensorDataTopic}: ${JSON.stringify(pirData, null, 2)}`);
 }
 
-// Send heartbeat
 function sendHeartbeat() {
   const heartbeat = {
     deviceId: DEVICE_CONFIG.deviceId,
@@ -151,15 +147,12 @@ function sendHeartbeat() {
   console.log(`💓 Heartbeat Sent: Uptime=${heartbeat.uptime.toFixed(2)}s`);
 }
 
-// Handle incoming messages
 client.on('message', function (topic, message) {
   console.log(`[DEBUG] Message received on topic: "${topic}"`);
   console.log(`[DEBUG] Message payload: ${message.toString()}`);
-  console.log(`[DEBUG] Message length: ${message.length} bytes`);
   
   const expectedSensorCtlTopic = `${IOT_TOPICS.SENSOR_CTL}/${DEVICE_CONFIG.deviceId}`;
   console.log(`[DEBUG] Expected sensor control topic: ${expectedSensorCtlTopic}`);
-  console.log(`[DEBUG] Topic matches sensor ctl format: ${topic === expectedSensorCtlTopic}`);
   
   console.log(`📨 Received message on topic "${topic}": ${message.toString()}`);
   
@@ -167,7 +160,6 @@ client.on('message', function (topic, message) {
     const data = JSON.parse(message.toString());
     console.log(`[DEBUG] Parsed message data:`, JSON.stringify(data, null, 2));
     
-    // Handle topic format: iot/sensor/ctl/{deviceId}
     if (topic === expectedSensorCtlTopic) {
       console.log(`[DEBUG] Handling sensor control message for device ${DEVICE_CONFIG.deviceId}`);
       handleSensorControl(data, topic);
@@ -175,7 +167,6 @@ client.on('message', function (topic, message) {
       console.log(`[DEBUG] Handling device command message`);
       handleCommand(data);
     } else if (topic.startsWith(`${IOT_TOPICS.SENSOR_CTL}/`)) {
-      // Handle other sensor control topics
       console.log(`[DEBUG] Handling generic sensor control message`);
       handleSensorControl(data, topic);
     } else if (topic === IOT_TOPICS.ACTUATOR_CONTROL) {
@@ -190,24 +181,17 @@ client.on('message', function (topic, message) {
   }
 });
 
-// Handle sensor control commands
 function handleSensorControl(control, topic) {
   console.log(`[DEBUG] handleSensorControl called`);
   console.log(`[DEBUG] Topic: ${topic}`);
   console.log(`[DEBUG] Control data:`, JSON.stringify(control, null, 2));
-  console.log(`[DEBUG] Expected topic format: iot/sensor/ctl/${DEVICE_CONFIG.deviceId}`);
   
-  // Validate topic format: iot/sensor/ctl/{deviceId}
   const expectedTopic = `${IOT_TOPICS.SENSOR_CTL}/${DEVICE_CONFIG.deviceId}`;
   if (topic !== expectedTopic) {
     console.warn(`[DEBUG] Topic mismatch! Expected: ${expectedTopic}, Got: ${topic}`);
   }
   
-  // Extract device ID from topic
   const deviceId = topic.split('/').pop();
-  console.log(`[DEBUG] Extracted device ID from topic: ${deviceId}`);
-  console.log(`[DEBUG] Current device ID: ${DEVICE_CONFIG.deviceId}`);
-  
   if (deviceId !== DEVICE_CONFIG.deviceId) {
     console.warn(`[DEBUG] Device ID mismatch! Expected: ${DEVICE_CONFIG.deviceId}, Got: ${deviceId}`);
     return;
@@ -215,12 +199,11 @@ function handleSensorControl(control, topic) {
   
   console.log(`🔧 Sensor Control received on ${topic}: ${JSON.stringify(control, null, 2)}`);
   
-  // Simulate sensor control response
   const response = {
     deviceId: DEVICE_CONFIG.deviceId,
     controlId: control.controlId || `control-${Date.now()}`,
     action: control.action || 'unknown',
-    sensor: control.sensor || 'all',
+    sensor: control.sensor || 'pir',
     status: 'executed',
     result: 'success',
     timestamp: new Date().toISOString(),
@@ -229,7 +212,6 @@ function handleSensorControl(control, topic) {
   
   console.log(`[DEBUG] Preparing response:`, JSON.stringify(response, null, 2));
   
-  // Send response back to broker
   const responseTopic = `${IOT_TOPICS.SENSOR_DATA}/${DEVICE_CONFIG.deviceId}/response`;
   console.log(`[DEBUG] Publishing response to topic: ${responseTopic}`);
   
@@ -246,17 +228,16 @@ function handleSensorControl(control, topic) {
     console.error(`[DEBUG] Error in publish:`, error);
   }
   
-  // Handle specific control actions
   if (control.action === 'calibrate') {
-    console.log(`[DEBUG] Executing calibrate action for sensor: ${control.sensor || 'all'}`);
-    console.log(`🔧 Calibrating sensor: ${control.sensor || 'all'}`);
+    console.log(`[DEBUG] Executing calibrate action for sensor: ${control.sensor || 'pir'}`);
+    console.log(`🔧 Calibrating sensor: ${control.sensor || 'pir'}`);
   } else if (control.action === 'reset') {
-    console.log(`[DEBUG] Executing reset action for sensor: ${control.sensor || 'all'}`);
-    console.log(`🔄 Resetting sensor: ${control.sensor || 'all'}`);
+    console.log(`[DEBUG] Executing reset action for sensor: ${control.sensor || 'pir'}`);
+    console.log(`🔄 Resetting sensor: ${control.sensor || 'pir'}`);
   } else if (control.action === 'configure') {
-    console.log(`[DEBUG] Executing configure action for sensor: ${control.sensor || 'all'}`);
+    console.log(`[DEBUG] Executing configure action for sensor: ${control.sensor || 'pir'}`);
     console.log(`[DEBUG] Configuration params:`, control.params);
-    console.log(`⚙️  Configuring sensor: ${control.sensor || 'all'} with params:`, control.params);
+    console.log(`⚙️  Configuring sensor: ${control.sensor || 'pir'} with params:`, control.params);
   } else {
     console.log(`[DEBUG] Unknown action: ${control.action}, treating as generic command`);
   }
@@ -264,11 +245,9 @@ function handleSensorControl(control, topic) {
   console.log(`[DEBUG] Sensor control handling completed`);
 }
 
-// Handle device commands
 function handleCommand(command) {
   console.log(`⚙️  Processing Command: ${JSON.stringify(command, null, 2)}`);
   
-  // Simulate command processing
   const response = {
     deviceId: DEVICE_CONFIG.deviceId,
     commandId: command.commandId || 'unknown',
@@ -281,11 +260,9 @@ function handleCommand(command) {
   console.log(`📤 Command Response Sent: ${JSON.stringify(response, null, 2)}`);
 }
 
-// Handle actuator control
 function handleActuatorControl(control) {
   console.log(`🔧 Actuator Control: ${JSON.stringify(control, null, 2)}`);
   
-  // Simulate actuator response
   const response = {
     deviceId: DEVICE_CONFIG.deviceId,
     actuator: control.actuator,
@@ -298,24 +275,21 @@ function handleActuatorControl(control) {
   console.log(`📤 Actuator Response Sent: ${JSON.stringify(response, null, 2)}`);
 }
 
-// Error handling
 client.on('error', function (error) {
-  console.error('❌ IoT Device Error:', error);
+  console.error('❌ PIR Device Error:', error);
 });
 
 client.on('close', function () {
-  console.log('🔌 IoT Device disconnected');
+  console.log('🔌 PIR Device disconnected');
 });
 
 client.on('offline', function () {
-  console.log('📴 IoT Device offline');
+  console.log('📴 PIR Device offline');
 });
 
-// Graceful shutdown
 process.on('SIGINT', function () {
-  console.log('\n🛑 Shutting down IoT device...');
+  console.log('\n🛑 Shutting down PIR device...');
   
-  // Send offline status
   client.publish(IOT_TOPICS.DEVICE_STATUS, JSON.stringify({
     deviceId: DEVICE_CONFIG.deviceId,
     status: 'offline',
@@ -323,13 +297,14 @@ process.on('SIGINT', function () {
   }), { qos: 1, retain: true });
   
   client.end(() => {
-    console.log('✅ IoT device stopped');
+    console.log('✅ PIR device stopped');
     process.exit(0);
   });
 });
 
-console.log('🚀 Starting IoT Device...');
+console.log('🚀 Starting PIR Device...');
 console.log(`📱 Device ID: ${DEVICE_CONFIG.deviceId}`);
-console.log(`🔗 Connecting to: mqtt://${mqttHost}:${config.mqttPort}`);
+console.log(`🔗 Connecting to: mqtt://${mqttHost}:${mqttPort}`);
 console.log(`📍 Location: ${DEVICE_CONFIG.location}`);
 console.log(`🔧 Capabilities: ${DEVICE_CONFIG.capabilities.join(', ')}`);
+

@@ -55,7 +55,63 @@ function App() {
       if (response.data && response.data.success && response.data.data) {
         const sensorData = response.data.data;
         
-        if (sensorData.temperature !== undefined || sensorData.humidity !== undefined) {
+        // Check if it's PIR device data (by device ID or data structure)
+        const isPirDeviceData = selectedDevice === 'iot-device-tunghv' ||
+                                selectedDevice?.includes('tunghv') ||
+                                sensorData.action !== undefined || 
+                                sensorData.source === 'pir';
+        
+        if (isPirDeviceData) {
+          // Ensure timestamp is a number
+          let timestamp = sensorData.ts || sensorData.timestamp || Date.now();
+          if (typeof timestamp === 'string') {
+            timestamp = Date.parse(timestamp) || Date.now();
+          } else if (typeof timestamp !== 'number') {
+            timestamp = Date.now();
+          }
+          
+          // Handle PIR device data
+          setCurrentSensorData({
+            deviceId: sensorData.deviceId || selectedDevice,
+            action: sensorData.action,
+            value: sensorData.value,
+            state: sensorData.detail?.state || (sensorData.value === 1 ? 'motion' : 'idle'),
+            source: sensorData.source || 'pir',
+            index: sensorData.detail?.index,
+            timestamp: timestamp
+          });
+          
+          // Add to history if not duplicate
+          setSensorDataHistory(prev => {
+            const lastItem = prev[prev.length - 1];
+            
+            // Ensure timestamp is a number
+            let newTimestamp = sensorData.ts || sensorData.timestamp || Date.now();
+            if (typeof newTimestamp === 'string') {
+              newTimestamp = Date.parse(newTimestamp) || Date.now();
+            } else if (typeof newTimestamp !== 'number') {
+              newTimestamp = Date.now();
+            }
+            
+            // Check if this is a new data point (different timestamp or action)
+            if (!lastItem || 
+                (typeof lastItem.timestamp === 'object' ? lastItem.timestamp.getTime() : lastItem.timestamp) !== newTimestamp ||
+                lastItem.action !== sensorData.action) {
+              const updated = [...prev, {
+                deviceId: sensorData.deviceId || selectedDevice,
+                action: sensorData.action,
+                value: sensorData.value,
+                state: sensorData.detail?.state || (sensorData.value === 1 ? 'motion' : 'idle'),
+                source: sensorData.source || 'pir',
+                index: sensorData.detail?.index,
+                timestamp: new Date(newTimestamp)
+              }];
+              return updated.slice(-50);
+            }
+            return prev;
+          });
+        } else if (sensorData.temperature !== undefined || sensorData.humidity !== undefined) {
+          // Handle regular sensor data (temperature/humidity)
           setCurrentSensorData({
             deviceId: sensorData.deviceId,
             temperature: sensorData.temperature,
@@ -64,13 +120,21 @@ function App() {
           });
           
           setSensorDataHistory(prev => {
-            const updated = [...prev, {
-              deviceId: sensorData.deviceId,
-              temperature: sensorData.temperature,
-              humidity: sensorData.humidity,
-              timestamp: new Date(sensorData.timestamp || Date.now())
-            }];
-            return updated.slice(-50);
+            const lastItem = prev[prev.length - 1];
+            const newTimestamp = sensorData.timestamp || Date.now();
+            
+            // Check if this is a new data point
+            if (!lastItem || 
+                lastItem.timestamp?.getTime() !== new Date(newTimestamp).getTime()) {
+              const updated = [...prev, {
+                deviceId: sensorData.deviceId,
+                temperature: sensorData.temperature,
+                humidity: sensorData.humidity,
+                timestamp: new Date(newTimestamp)
+              }];
+              return updated.slice(-50);
+            }
+            return prev;
           });
         }
       }
@@ -79,8 +143,127 @@ function App() {
     }
   };
 
+  const loadSensorDataHistory = async () => {
+    if (!selectedDevice || !isPirDevice()) return;
+    
+    try {
+      const response = await axios.get(`${API_BASE_PATH}/sensor-data/${selectedDevice}/history?limit=50`);
+      console.log('[DEBUG] Sensor data history response:', response.data);
+      
+      if (response.data && response.data.success && response.data.data) {
+        const history = response.data.data;
+        
+        if (history.length > 0) {
+          // Check if it's PIR device data (by device ID or data structure)
+          const isPirData = selectedDevice === 'iot-device-tunghv' ||
+                           selectedDevice?.includes('tunghv') ||
+                           history[0].action !== undefined || 
+                           history[0].source === 'pir';
+          
+          if (isPirData) {
+            const processedHistory = history.map(item => {
+              // Ensure timestamp is a number
+              let timestamp = item.ts || item.timestamp || Date.now();
+              if (typeof timestamp === 'string') {
+                timestamp = Date.parse(timestamp) || Date.now();
+              } else if (typeof timestamp !== 'number') {
+                timestamp = Date.now();
+              }
+              
+              return {
+                deviceId: item.deviceId || selectedDevice,
+                action: item.action,
+                value: item.value,
+                state: item.detail?.state || (item.value === 1 ? 'motion' : 'idle'),
+                source: item.source || 'pir',
+                index: item.detail?.index,
+                timestamp: new Date(timestamp)
+              };
+            });
+            
+            // Sort by timestamp ascending
+            processedHistory.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+            
+            setSensorDataHistory(processedHistory);
+            
+            // Set current sensor data to latest
+            if (processedHistory.length > 0) {
+              const latest = processedHistory[processedHistory.length - 1];
+              setCurrentSensorData({
+                deviceId: latest.deviceId,
+                action: latest.action,
+                value: latest.value,
+                state: latest.state,
+                source: latest.source,
+                index: latest.index,
+                timestamp: latest.timestamp.getTime()
+              });
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[DEBUG] Load sensor data history error:', error);
+    }
+  };
+
+  const isPirDevice = () => {
+    if (!selectedDevice) return false;
+    const device = devices.find(d => d.deviceId === selectedDevice);
+    return device?.deviceType === 'pir' || 
+           selectedDevice === 'iot-device-tunghv' ||
+           selectedDevice?.includes('tunghv');
+  };
+
+  const getPirTrackingStats = () => {
+    if (!isPirDevice() || sensorDataHistory.length === 0) {
+      return {
+        totalEvents: 0,
+        motionStarts: 0,
+        motionStops: 0,
+        totalMotionTime: 0,
+        currentState: 'unknown',
+        lastEvent: null
+      };
+    }
+
+    const motionStarts = sensorDataHistory.filter(d => d.action === 'motion_start').length;
+    const motionStops = sensorDataHistory.filter(d => d.action === 'motion_stop').length;
+    const totalEvents = motionStarts + motionStops;
+    
+    const lastData = sensorDataHistory[sensorDataHistory.length - 1];
+    const currentState = lastData?.state || (lastData?.value === 1 ? 'motion' : 'idle');
+    
+    let motionTime = 0;
+    let lastStartTime = null;
+    sensorDataHistory.forEach(d => {
+      if (d.action === 'motion_start') {
+        lastStartTime = d.timestamp?.getTime() || d.timestamp;
+      } else if (d.action === 'motion_stop' && lastStartTime) {
+        const stopTime = d.timestamp?.getTime() || d.timestamp;
+        motionTime += (stopTime - lastStartTime);
+        lastStartTime = null;
+      }
+    });
+    
+    return {
+      totalEvents,
+      motionStarts,
+      motionStops,
+      totalMotionTime: Math.round(motionTime / 1000),
+      currentState,
+      lastEvent: lastData?.action || null
+    };
+  };
+
   useEffect(() => {
     if (selectedDevice && activeTab === 'control') {
+      // Load history first if PIR device
+      if (isPirDevice()) {
+        loadSensorDataHistory();
+      }
+      
+      // Then start polling for latest data
       loadSensorData();
       sensorDataIntervalRef.current = setInterval(() => {
         loadSensorData();
@@ -836,33 +1019,33 @@ function App() {
             <Row gutter={24}>
               {/* Command Form */}
               <Col xs={24} lg={18}>
-                {/* Device Selection */}
+                    {/* Device Selection */}
                 <Card size="small" style={{ marginBottom: 16 }}>
-                  <div>
+                    <div>
                     <Text strong>Chọn thiết bị:</Text>
-                    <Select
+                      <Select
                       placeholder="Chọn thiết bị"
-                      style={{ width: '100%', marginTop: 8 }}
-                      value={selectedDevice}
-                      onChange={setSelectedDevice}
-                      showSearch
-                      filterOption={(input, option) =>
-                        option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
-                      }
-                    >
-                      {devices.map(device => (
-                        <Option key={device.deviceId} value={device.deviceId}>
-                          <Space>
-                            <Badge 
-                              status={device.status === 'online' ? 'success' : 'error'} 
-                              text={device.deviceId}
-                            />
-                            <Text type="secondary">({device.deviceType})</Text>
-                          </Space>
-                        </Option>
-                      ))}
-                    </Select>
-                  </div>
+                        style={{ width: '100%', marginTop: 8 }}
+                        value={selectedDevice}
+                        onChange={setSelectedDevice}
+                        showSearch
+                        filterOption={(input, option) =>
+                          option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                        }
+                      >
+                        {devices.map(device => (
+                          <Option key={device.deviceId} value={device.deviceId}>
+                            <Space>
+                              <Badge 
+                                status={device.status === 'online' ? 'success' : 'error'} 
+                                text={device.deviceId}
+                              />
+                              <Text type="secondary">({device.deviceType})</Text>
+                            </Space>
+                          </Option>
+                        ))}
+                      </Select>
+                    </div>
                 </Card>
                 
                 {/* Real-time Chart */}
@@ -870,17 +1053,19 @@ function App() {
                   <Card 
                     title={
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                        <span>Dữ liệu thời gian thực - {selectedDevice}</span>
-                        <Space size="small" style={{ marginLeft: 8 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <div style={{ width: 12, height: 12, backgroundColor: '#ff4d4f', borderRadius: 2 }}></div>
-                            <Text style={{ fontSize: '12px' }}>Nhiệt độ</Text>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <div style={{ width: 12, height: 12, backgroundColor: '#1890ff', borderRadius: 2 }}></div>
-                            <Text style={{ fontSize: '12px' }}>Độ ẩm</Text>
-                          </div>
-                        </Space>
+                        <span>PIR Motion Tracking - {selectedDevice}</span>
+                        {isPirDevice() && (
+                          <Space size="small" style={{ marginLeft: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <div style={{ width: 12, height: 12, backgroundColor: '#52c41a', borderRadius: 2 }}></div>
+                              <Text style={{ fontSize: '12px' }}>Motion</Text>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <div style={{ width: 12, height: 12, backgroundColor: '#faad14', borderRadius: 2 }}></div>
+                              <Text style={{ fontSize: '12px' }}>Idle</Text>
+                            </div>
+                          </Space>
+                        )}
                       </div>
                     }
                     size="small"
@@ -888,145 +1073,554 @@ function App() {
                     extra={
                       currentSensorData && (
                         <Space>
-                          <Tag color="red">Nhiệt độ: {currentSensorData.temperature}°C</Tag>
-                          <Tag color="blue">Độ ẩm: {currentSensorData.humidity}%</Tag>
+                          {isPirDevice() ? (
+                            <>
+                              <Tag color={currentSensorData.state === 'motion' ? 'green' : 'orange'}>
+                                {currentSensorData.action === 'motion_start' ? 'Motion Start' : currentSensorData.action === 'motion_stop' ? 'Motion Stop' : currentSensorData.state === 'motion' ? 'Motion' : 'Idle'}
+                              </Tag>
+                              <Tag color={currentSensorData.value === 1 ? 'green' : 'default'}>
+                                Value: {currentSensorData.value}
+                              </Tag>
+                              {currentSensorData.index && (
+                                <Tag>Index: {currentSensorData.index}</Tag>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <Tag color="red">Nhiệt độ: {currentSensorData.temperature}°C</Tag>
+                              <Tag color="blue">Độ ẩm: {currentSensorData.humidity}%</Tag>
+                            </>
+                          )}
                         </Space>
                       )
                     }
                   >
+                    {isPirDevice() && (
+                      <div style={{ marginBottom: 16, padding: '12px', backgroundColor: '#f5f5f5', borderRadius: 4 }}>
+                        <Row gutter={16}>
+                          <Col xs={12} sm={6}>
+                            <div style={{ textAlign: 'center' }}>
+                              <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Tổng sự kiện</Text>
+                              <Text strong style={{ fontSize: '18px', color: '#1890ff' }}>
+                                {getPirTrackingStats().totalEvents}
+                              </Text>
+                            </div>
+                          </Col>
+                          <Col xs={12} sm={6}>
+                            <div style={{ textAlign: 'center' }}>
+                              <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Motion Starts</Text>
+                              <Text strong style={{ fontSize: '18px', color: '#52c41a' }}>
+                                {getPirTrackingStats().motionStarts}
+                              </Text>
+                            </div>
+                          </Col>
+                          <Col xs={12} sm={6}>
+                            <div style={{ textAlign: 'center' }}>
+                              <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Motion Stops</Text>
+                              <Text strong style={{ fontSize: '18px', color: '#faad14' }}>
+                                {getPirTrackingStats().motionStops}
+                              </Text>
+                            </div>
+                          </Col>
+                          <Col xs={12} sm={6}>
+                            <div style={{ textAlign: 'center' }}>
+                              <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Tổng thời gian Motion</Text>
+                              <Text strong style={{ fontSize: '18px', color: '#722ed1' }}>
+                                {getPirTrackingStats().totalMotionTime}s
+                              </Text>
+                            </div>
+                          </Col>
+                        </Row>
+                      </div>
+                    )}
                     {sensorDataHistory.length > 0 ? (
                       <div style={{ width: '100%', height: '333px', position: 'relative' }}>
-                        <svg 
-                          width="100%" 
-                          height="100%" 
-                          viewBox="0 0 1000 333"
-                          preserveAspectRatio="none"
-                          style={{ border: '1px solid #f0f0f0', borderRadius: 4 }}
-                        >
-                          {(() => {
-                            const padding = 50;
-                            const width = 1000;
-                            const height = 333;
-                            const chartWidth = width - 2 * padding;
-                            const chartHeight = height - 2 * padding;
-                            
-                            const tempData = sensorDataHistory.map(d => d.temperature || 0);
-                            const humData = sensorDataHistory.map(d => d.humidity || 0);
-                            const maxTemp = Math.max(...tempData, 35);
-                            const minTemp = Math.min(...tempData, 15);
-                            const maxHum = Math.max(...humData, 100);
-                            const minHum = Math.min(...humData, 0);
-                            
-                            const tempRange = maxTemp - minTemp || 20;
-                            const humRange = maxHum - minHum || 100;
-                            
-                            const getX = (index) => padding + (index / (sensorDataHistory.length - 1 || 1)) * chartWidth;
-                            const getTempY = (value) => padding + chartHeight - ((value - minTemp) / tempRange) * chartHeight;
-                            const getHumY = (value) => padding + chartHeight - ((value - minHum) / humRange) * chartHeight;
-                            
-                            const tempPath = sensorDataHistory.map((d, i) => {
-                              const x = getX(i);
-                              const y = getTempY(d.temperature || 0);
-                              return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`;
-                            }).join(' ');
-                            
-                            const humPath = sensorDataHistory.map((d, i) => {
-                              const x = getX(i);
-                              const y = getHumY(d.humidity || 0);
-                              return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`;
-                            }).join(' ');
-                            
-                            return (
-                              <g>
-                                {/* Grid lines */}
-                                {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => (
-                                  <g key={i}>
-                                    <line
-                                      x1={padding}
-                                      y1={padding + ratio * chartHeight}
-                                      x2={width - padding}
-                                      y2={padding + ratio * chartHeight}
-                                      stroke="#f0f0f0"
+                        {isPirDevice() ? (
+                          <svg 
+                            width="100%" 
+                            height="100%" 
+                            viewBox="0 0 1000 380"
+                            preserveAspectRatio="none"
+                            style={{ border: '1px solid #f0f0f0', borderRadius: 4 }}
+                          >
+                            {(() => {
+                              const paddingTop = 60;
+                              const paddingBottom = 80;
+                              const paddingLeft = 100;
+                              const paddingRight = 20;
+                              const width = 1000;
+                              const height = 380;
+                              const chartWidth = width - paddingLeft - paddingRight;
+                              const chartHeight = height - paddingTop - paddingBottom;
+                              
+                              const getX = (index) => {
+                                if (sensorDataHistory.length === 1) return paddingLeft + chartWidth / 2;
+                                return paddingLeft + (index / (sensorDataHistory.length - 1)) * chartWidth;
+                              };
+                              
+                              const getY = (value) => {
+                                const motionY = paddingTop;
+                                const idleY = paddingTop + chartHeight;
+                                return value === 1 ? motionY : idleY;
+                              };
+                              
+                              const motionEvents = sensorDataHistory
+                                .map((d, i) => ({ 
+                                  index: i, 
+                                  data: d, 
+                                  x: getX(i),
+                                  timestamp: d.timestamp?.getTime() || Date.now(),
+                                  timeLabel: d.timestamp ? new Date(d.timestamp).toLocaleTimeString('vi-VN', { 
+                                    hour: '2-digit', 
+                                    minute: '2-digit', 
+                                    second: '2-digit' 
+                                  }) : ''
+                                }))
+                                .filter(({ data }) => data.action);
+                              
+                              let currentMotionStart = null;
+                              const motionPeriods = [];
+                              
+                              sensorDataHistory.forEach((d, i) => {
+                                if (d.action === 'motion_start') {
+                                  currentMotionStart = { index: i, data: d, x: getX(i) };
+                                } else if (d.action === 'motion_stop' && currentMotionStart) {
+                                  motionPeriods.push({
+                                    start: currentMotionStart,
+                                    end: { index: i, data: d, x: getX(i) }
+                                  });
+                                  currentMotionStart = null;
+                                }
+                              });
+                              
+                              if (currentMotionStart && sensorDataHistory.length > 0) {
+                                const lastIndex = sensorDataHistory.length - 1;
+                                motionPeriods.push({
+                                  start: currentMotionStart,
+                                  end: { 
+                                    index: lastIndex, 
+                                    data: sensorDataHistory[lastIndex], 
+                                    x: getX(lastIndex) 
+                                  }
+                                });
+                              }
+                              
+                              return (
+                                <g>
+                                  {/* Background gradient for motion periods */}
+                                  {motionPeriods.map((period, idx) => {
+                                    const x1 = period.start.x;
+                                    const x2 = period.end.x;
+                                    const width = x2 - x1;
+                                    return (
+                                      <rect
+                                        key={`period-${idx}`}
+                                        x={x1}
+                                        y={paddingTop}
+                                        width={width}
+                                        height={chartHeight}
+                                        fill="#52c41a"
+                                        opacity="0.2"
+                                      />
+                                    );
+                                  })}
+                                  
+                                  {/* Timeline axis */}
+                                  <line
+                                    x1={paddingLeft}
+                                    y1={paddingTop + chartHeight / 2}
+                                    x2={width - paddingRight}
+                                    y2={paddingTop + chartHeight / 2}
+                                    stroke="#d9d9d9"
+                                    strokeWidth="2"
+                                    strokeDasharray="5,5"
+                                  />
+                                  
+                                  {/* Motion level lines */}
+                                  <line
+                                    x1={paddingLeft}
+                                    y1={paddingTop}
+                                    x2={width - paddingRight}
+                                    y2={paddingTop}
+                                    stroke="#52c41a"
+                                    strokeWidth="1"
+                                    opacity="0.3"
+                                  />
+                                  <text
+                                    x={paddingLeft - 10}
+                                    y={paddingTop + 4}
+                                    fontSize="11"
+                                    fill="#52c41a"
+                                    textAnchor="end"
+                                    fontWeight="bold"
+                                  >
+                                    Motion
+                                  </text>
+                                  
+                                  <line
+                                    x1={paddingLeft}
+                                    y1={paddingTop + chartHeight}
+                                    x2={width - paddingRight}
+                                    y2={paddingTop + chartHeight}
+                                    stroke="#faad14"
+                                    strokeWidth="1"
+                                    opacity="0.3"
+                                  />
+                                  <text
+                                    x={paddingLeft - 10}
+                                    y={paddingTop + chartHeight + 4}
+                                    fontSize="11"
+                                    fill="#faad14"
+                                    textAnchor="end"
+                                    fontWeight="bold"
+                                  >
+                                    Idle
+                                  </text>
+                                  
+                                  {/* Motion event markers with vertical lines */}
+                                  {motionEvents.map((event, idx) => {
+                                    const isStart = event.data.action === 'motion_start';
+                                    const y = getY(event.data.value || (isStart ? 1 : 0));
+                                    const color = isStart ? '#52c41a' : '#faad14';
+                                    const icon = isStart ? '▶' : '■';
+                                    
+                                    return (
+                                      <g key={`event-${event.index}`}>
+                                        {/* Vertical line */}
+                                        <line
+                                          x1={event.x}
+                                          y1={paddingTop}
+                                          x2={event.x}
+                                          y2={paddingTop + chartHeight}
+                                          stroke={color}
+                                          strokeWidth="1.5"
+                                          strokeDasharray="3,3"
+                                          opacity="0.4"
+                                        />
+                                        
+                                        {/* Event circle */}
+                                        <circle
+                                          cx={event.x}
+                                          cy={y}
+                                          r="10"
+                                          fill={color}
+                                          stroke="#fff"
+                                          strokeWidth="2"
+                                        />
+                                        
+                                        {/* Event icon */}
+                                        <text
+                                          x={event.x}
+                                          y={y + 4}
+                                          fontSize="10"
+                                          fill="#fff"
+                                          textAnchor="middle"
+                                          fontWeight="bold"
+                                        >
+                                          {icon}
+                                        </text>
+                                        
+                                        {/* Event label above */}
+                                        <text
+                                          x={event.x}
+                                          y={y - 15}
+                                          fontSize="9"
+                                          fill={color}
+                                          textAnchor="middle"
+                                          fontWeight="bold"
+                                        >
+                                          {isStart ? 'START' : 'STOP'}
+                                        </text>
+                                        
+                                        {/* Timestamp below */}
+                                        {event.timeLabel && (
+                                          <text
+                                            x={event.x}
+                                            y={paddingTop + chartHeight + 20}
+                                            fontSize="9"
+                                            fill="#8c8c8c"
+                                            textAnchor="middle"
+                                          >
+                                            {event.timeLabel}
+                                          </text>
+                                        )}
+                                      </g>
+                                    );
+                                  })}
+                                  
+                                  {/* Data points timeline */}
+                                  {sensorDataHistory.map((d, i) => {
+                                    const x = getX(i);
+                                    const y = getY(d.value || 0);
+                                    const isEvent = d.action === 'motion_start' || d.action === 'motion_stop';
+                                    
+                                    if (!isEvent) {
+                                      return (
+                                        <circle
+                                          key={i}
+                                          cx={x}
+                                          cy={y}
+                                          r="4"
+                                          fill={d.value === 1 ? '#52c41a' : '#faad14'}
+                                          stroke="#fff"
+                                          strokeWidth="1.5"
+                                          opacity="0.7"
+                                        />
+                                      );
+                                    }
+                                    return null;
+                                  })}
+                                  
+                                  {/* Connection lines between states */}
+                                  {sensorDataHistory.slice(1).map((d, i) => {
+                                    const prevX = getX(i);
+                                    const prevY = getY(sensorDataHistory[i].value || 0);
+                                    const currX = getX(i + 1);
+                                    const currY = getY(d.value || 0);
+                                    const color = d.value === 1 ? '#52c41a' : '#faad14';
+                                    
+                                    return (
+                                      <line
+                                        key={`line-${i}`}
+                                        x1={prevX}
+                                        y1={prevY}
+                                        x2={currX}
+                                        y2={currY}
+                                        stroke={color}
+                                        strokeWidth="2"
+                                        opacity="0.6"
+                                      />
+                                    );
+                                  })}
+                                  
+                                  {/* Chart title */}
+                                  <text
+                                    x={width / 2}
+                                    y={25}
+                                    fontSize="16"
+                                    fill="#262626"
+                                    textAnchor="middle"
+                                    fontWeight="bold"
+                                  >
+                                    Timeline Tracking - Motion Events
+                                  </text>
+                                  
+                                  {/* Statistics on chart */}
+                                  <g>
+                                    <rect
+                                      x={width - paddingRight - 180}
+                                      y={paddingTop + 10}
+                                      width="170"
+                                      height="100"
+                                      fill="white"
+                                      stroke="#d9d9d9"
                                       strokeWidth="1"
+                                      rx="4"
+                                      opacity="0.95"
                                     />
                                     <text
-                                      x={padding - 50}
-                                      y={padding + ratio * chartHeight + 4}
-                                      fontSize="12"
-                                      fill="#8c8c8c"
+                                      x={width - paddingRight - 170}
+                                      y={paddingTop + 25}
+                                      fontSize="10"
+                                      fill="#595959"
+                                      fontWeight="bold"
                                     >
-                                      {ratio === 0 ? Math.round(maxTemp) : ratio === 1 ? Math.round(minTemp) : ''}
+                                      Thống kê Tracking:
                                     </text>
                                     <text
-                                      x={width - padding + 15}
-                                      y={padding + ratio * chartHeight + 4}
-                                      fontSize="12"
-                                      fill="#8c8c8c"
-                                    >
-                                      {ratio === 0 ? Math.round(maxHum) : ratio === 1 ? Math.round(minHum) : ''}
-                                    </text>
-                                  </g>
-                                ))}
-                                
-                                {/* Temperature line */}
-                                <path
-                                  d={tempPath}
-                                  fill="none"
-                                  stroke="#ff4d4f"
-                                  strokeWidth="3"
-                                />
-                                
-                                {/* Humidity line */}
-                                <path
-                                  d={humPath}
-                                  fill="none"
-                                  stroke="#1890ff"
-                                  strokeWidth="3"
-                                />
-                                
-                                {/* Data points */}
-                                {sensorDataHistory.map((d, i) => (
-                                  <g key={i}>
-                                    <circle
-                                      cx={getX(i)}
-                                      cy={getTempY(d.temperature || 0)}
-                                      r="4"
-                                      fill="#ff4d4f"
-                                    />
-                                    <circle
-                                      cx={getX(i)}
-                                      cy={getHumY(d.humidity || 0)}
-                                      r="4"
+                                      x={width - paddingRight - 170}
+                                      y={paddingTop + 42}
+                                      fontSize="9"
                                       fill="#1890ff"
-                                    />
+                                    >
+                                      Events: {getPirTrackingStats().totalEvents}
+                                    </text>
+                                    <text
+                                      x={width - paddingRight - 170}
+                                      y={paddingTop + 57}
+                                      fontSize="9"
+                                      fill="#52c41a"
+                                    >
+                                      Starts: {getPirTrackingStats().motionStarts}
+                                    </text>
+                                    <text
+                                      x={width - paddingRight - 170}
+                                      y={paddingTop + 72}
+                                      fontSize="9"
+                                      fill="#faad14"
+                                    >
+                                      Stops: {getPirTrackingStats().motionStops}
+                                    </text>
+                                    <text
+                                      x={width - paddingRight - 170}
+                                      y={paddingTop + 87}
+                                      fontSize="9"
+                                      fill="#722ed1"
+                                    >
+                                      Motion: {getPirTrackingStats().totalMotionTime}s
+                                    </text>
+                                    <text
+                                      x={width - paddingRight - 170}
+                                      y={paddingTop + 102}
+                                      fontSize="9"
+                                      fill={getPirTrackingStats().currentState === 'motion' ? '#52c41a' : '#faad14'}
+                                      fontWeight="bold"
+                                    >
+                                      Trạng thái: {getPirTrackingStats().currentState === 'motion' ? 'MOTION' : 'IDLE'}
+                                    </text>
                                   </g>
-                                ))}
-                                
-                                {/* Y-axis labels */}
-                                <text
-                                  x={width / 2}
-                                  y={padding - 15}
-                                  fontSize="14"
-                                  fill="#595959"
-                                  textAnchor="middle"
-                                  fontWeight="bold"
-                                >
-                                  Nhiệt độ (°C) / Độ ẩm (%)
-                                </text>
-                              </g>
-                            );
-                          })()}
-                        </svg>
+                                </g>
+                              );
+                            })()}
+                          </svg>
+                        ) : (
+                          <svg 
+                            width="100%" 
+                            height="100%" 
+                            viewBox="0 0 1000 333"
+                            preserveAspectRatio="none"
+                            style={{ border: '1px solid #f0f0f0', borderRadius: 4 }}
+                          >
+                            {(() => {
+                              const padding = 50;
+                              const width = 1000;
+                              const height = 333;
+                              const chartWidth = width - 2 * padding;
+                              const chartHeight = height - 2 * padding;
+                              
+                              const tempData = sensorDataHistory.map(d => d.temperature || 0);
+                              const humData = sensorDataHistory.map(d => d.humidity || 0);
+                              const maxTemp = Math.max(...tempData, 35);
+                              const minTemp = Math.min(...tempData, 15);
+                              const maxHum = Math.max(...humData, 100);
+                              const minHum = Math.min(...humData, 0);
+                              
+                              const tempRange = maxTemp - minTemp || 20;
+                              const humRange = maxHum - minHum || 100;
+                              
+                              const getX = (index) => padding + (index / (sensorDataHistory.length - 1 || 1)) * chartWidth;
+                              const getTempY = (value) => padding + chartHeight - ((value - minTemp) / tempRange) * chartHeight;
+                              const getHumY = (value) => padding + chartHeight - ((value - minHum) / humRange) * chartHeight;
+                              
+                              const tempPath = sensorDataHistory.map((d, i) => {
+                                const x = getX(i);
+                                const y = getTempY(d.temperature || 0);
+                                return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`;
+                              }).join(' ');
+                              
+                              const humPath = sensorDataHistory.map((d, i) => {
+                                const x = getX(i);
+                                const y = getHumY(d.humidity || 0);
+                                return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`;
+                              }).join(' ');
+                              
+                              return (
+                                <g>
+                                  {/* Grid lines */}
+                                  {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => (
+                                    <g key={i}>
+                                      <line
+                                        x1={padding}
+                                        y1={padding + ratio * chartHeight}
+                                        x2={width - padding}
+                                        y2={padding + ratio * chartHeight}
+                                        stroke="#f0f0f0"
+                                        strokeWidth="1"
+                                      />
+                                      <text
+                                        x={padding - 50}
+                                        y={padding + ratio * chartHeight + 4}
+                                        fontSize="12"
+                                        fill="#8c8c8c"
+                                      >
+                                        {ratio === 0 ? Math.round(maxTemp) : ratio === 1 ? Math.round(minTemp) : ''}
+                                      </text>
+                                      <text
+                                        x={width - padding + 15}
+                                        y={padding + ratio * chartHeight + 4}
+                                        fontSize="12"
+                                        fill="#8c8c8c"
+                                      >
+                                        {ratio === 0 ? Math.round(maxHum) : ratio === 1 ? Math.round(minHum) : ''}
+                                      </text>
+                                    </g>
+                                  ))}
+                                  
+                                  {/* Temperature line */}
+                                  <path
+                                    d={tempPath}
+                                    fill="none"
+                                    stroke="#ff4d4f"
+                                    strokeWidth="3"
+                                  />
+                                  
+                                  {/* Humidity line */}
+                                  <path
+                                    d={humPath}
+                                    fill="none"
+                                    stroke="#1890ff"
+                                    strokeWidth="3"
+                                  />
+                                  
+                                  {/* Data points */}
+                                  {sensorDataHistory.map((d, i) => (
+                                    <g key={i}>
+                                      <circle
+                                        cx={getX(i)}
+                                        cy={getTempY(d.temperature || 0)}
+                                        r="4"
+                                        fill="#ff4d4f"
+                                      />
+                                      <circle
+                                        cx={getX(i)}
+                                        cy={getHumY(d.humidity || 0)}
+                                        r="4"
+                                        fill="#1890ff"
+                                      />
+                                    </g>
+                                  ))}
+                                  
+                                  {/* Y-axis labels */}
+                                  <text
+                                    x={width / 2}
+                                    y={padding - 15}
+                                    fontSize="14"
+                                    fill="#595959"
+                                    textAnchor="middle"
+                                    fontWeight="bold"
+                                  >
+                                    Nhiệt độ (°C) / Độ ẩm (%)
+                                  </text>
+                                </g>
+                              );
+                            })()}
+                          </svg>
+                        )}
                         <div style={{ marginTop: 8, display: 'flex', justifyContent: 'center', gap: 24 }}>
                           <Space>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <div style={{ width: 12, height: 12, backgroundColor: '#ff4d4f', borderRadius: 2 }}></div>
-                              <Text style={{ fontSize: '12px' }}>Nhiệt độ</Text>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <div style={{ width: 12, height: 12, backgroundColor: '#1890ff', borderRadius: 2 }}></div>
-                              <Text style={{ fontSize: '12px' }}>Độ ẩm</Text>
-                            </div>
+                            {isPirDevice() ? (
+                              <>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <div style={{ width: 12, height: 12, backgroundColor: '#52c41a', borderRadius: 2 }}></div>
+                                  <Text style={{ fontSize: '12px' }}>Motion</Text>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <div style={{ width: 12, height: 12, backgroundColor: '#faad14', borderRadius: 2 }}></div>
+                                  <Text style={{ fontSize: '12px' }}>Idle</Text>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <div style={{ width: 12, height: 12, backgroundColor: '#ff4d4f', borderRadius: 2 }}></div>
+                                  <Text style={{ fontSize: '12px' }}>Nhiệt độ</Text>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <div style={{ width: 12, height: 12, backgroundColor: '#1890ff', borderRadius: 2 }}></div>
+                                  <Text style={{ fontSize: '12px' }}>Độ ẩm</Text>
+                                </div>
+                              </>
+                            )}
                           </Space>
                         </div>
                       </div>
@@ -1041,7 +1635,7 @@ function App() {
                 <Card title="Gửi lệnh" size="small">
                   <Space direction="vertical" style={{ width: '100%' }}>
                     {/* Topic Display */}
-                    {selectedDevice && (
+                      {selectedDevice && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Text strong style={{ minWidth: '70px' }}>Topic:</Text>
                         <div style={{ flex: 1, padding: '8px 12px', backgroundColor: '#f5f5f5', borderRadius: 4 }}>
@@ -1049,7 +1643,7 @@ function App() {
                             iot/sensor/ctl/{selectedDevice}
                           </Text>
                         </div>
-                      </div>
+                    </div>
                     )}
 
                     {/* Command Data */}
@@ -1086,28 +1680,28 @@ function App() {
               {/* Connection Status */}
               <Col xs={24} lg={6}>
                 <Space direction="vertical" style={{ width: '100%' }} size="middle">
-                  <Card title="Connection Status" size="small">
-                    <Space direction="vertical" style={{ width: '100%' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <Text>API Server:</Text>
-                        <Tag color={apiStatus ? 'green' : 'red'}>
-                          {apiStatus ? 'Connected' : 'Disconnected'}
-                        </Tag>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <Text>MQTT Broker:</Text>
-                        <Tag color={apiStatus?.mqtt?.connected ? 'green' : 'red'}>
-                          {apiStatus?.mqtt?.connected ? 'Connected' : 'Disconnected'}
-                        </Tag>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <Text>Redis:</Text>
-                        <Tag color={apiStatus?.redis?.connected ? 'green' : 'red'}>
-                          {apiStatus?.redis?.connected ? 'Connected' : 'Disconnected'}
-                        </Tag>
-                      </div>
-                    </Space>
-                  </Card>
+                <Card title="Connection Status" size="small">
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Text>API Server:</Text>
+                      <Tag color={apiStatus ? 'green' : 'red'}>
+                        {apiStatus ? 'Connected' : 'Disconnected'}
+                      </Tag>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Text>MQTT Broker:</Text>
+                      <Tag color={apiStatus?.mqtt?.connected ? 'green' : 'red'}>
+                        {apiStatus?.mqtt?.connected ? 'Connected' : 'Disconnected'}
+                      </Tag>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Text>Redis:</Text>
+                      <Tag color={apiStatus?.redis?.connected ? 'green' : 'red'}>
+                        {apiStatus?.redis?.connected ? 'Connected' : 'Disconnected'}
+                      </Tag>
+                    </div>
+                  </Space>
+                </Card>
 
                   {/* Command History */}
                   <Card 
