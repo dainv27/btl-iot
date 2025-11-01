@@ -1,9 +1,10 @@
 module.exports = {
   // MQTT broker configuration
   mqttHost: process.env.MQTT_HOST || 'localhost',
-  mqttPort: 1883,
-  wsPort: 9090,
-  webPort: 3001, // Web server port
+  mqttPort: parseInt(process.env.MQTT_PORT) || 1883,
+  wsPort: parseInt(process.env.WS_PORT) || 9090,
+  webPort: parseInt(process.env.WEB_PORT) || 3001,
+  redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
   
   // Authentication settings
   requireAuth: false, // Set to true to enable authentication

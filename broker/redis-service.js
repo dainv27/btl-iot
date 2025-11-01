@@ -6,10 +6,10 @@ class RedisService {
         this.isConnected = false;
     }
 
-    async connect() {
+    async connect(redisUrl) {
         try {
             this.client = createClient({
-                url: process.env.REDIS_URL || 'redis://localhost:6379',
+                url: redisUrl || process.env.REDIS_URL || 'redis://localhost:6379',
                 socket: {
                     reconnectStrategy: (retries) => {
                         if (retries > 10) {

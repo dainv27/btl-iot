@@ -857,7 +857,7 @@ app.use('*', (req, res) => {
 async function startServer() {
     // Connect to Redis
     console.log('🔗 Connecting to Redis...');
-    const redisConnected = await redisService.connect();
+    const redisConnected = await redisService.connect(config.redisUrl);
     
     if (redisConnected) {
         console.log('✅ Redis connected successfully');

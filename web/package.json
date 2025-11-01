@@ -1,7 +1,7 @@
 {
   "name": "iot-web-app",
   "version": "1.0.0",
-  "description": "IoT Device Management Web App",
+  "description": "IoT - Nhóm 10 Web App",
   "main": "src/index.js",
   "scripts": {
     "start": "react-scripts start",

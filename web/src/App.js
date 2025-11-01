@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Layout, Typography, Card, Button, Space, Row, Col, Statistic, Tag, Spin, Alert, Switch, Tooltip, Badge, Divider, Select, Input, Table, Timeline, Form, InputNumber, Switch as AntSwitch, message } from 'antd';
-import { DesktopOutlined, ControlOutlined, FileTextOutlined, SendOutlined, ReloadOutlined, ClockCircleOutlined, WifiOutlined, WifiOutlined as WifiOffOutlined, SearchOutlined, FilterOutlined, SendOutlined as SendIcon } from '@ant-design/icons';
+import { DesktopOutlined, ControlOutlined, FileTextOutlined, SendOutlined, ReloadOutlined, ClockCircleOutlined, WifiOutlined, WifiOutlined as WifiOffOutlined, SearchOutlined, FilterOutlined, SendOutlined as SendIcon, DashboardOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import './App.css';
 
@@ -9,12 +9,11 @@ const { Title, Text } = Typography;
 const { Option } = Select;
 const { Search } = Input;
 
-// API Configuration - Use environment variable or default to localhost:3001
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
 const API_BASE_PATH = `${API_BASE_URL}/api`;
 
 function App() {
-  const [activeTab, setActiveTab] = useState('devices');
+  const [activeTab, setActiveTab] = useState('overview');
   const [devices, setDevices] = useState([]);
   const [logs, setLogs] = useState([]);
   const [topics, setTopics] = useState([]);
@@ -25,20 +24,20 @@ function App() {
   const [refreshInterval, setRefreshInterval] = useState(5000); // 5 seconds
   const [lastRefresh, setLastRefresh] = useState(null);
   
-  // Filter states
   const [logLevelFilter, setLogLevelFilter] = useState('');
   const [deviceFilter, setDeviceFilter] = useState('');
   const [topicSearch, setTopicSearch] = useState('');
   
-  // Control tab states
   const [selectedDevice, setSelectedDevice] = useState('');
-  const [commandTopic, setCommandTopic] = useState('');
   const [commandData, setCommandData] = useState('');
   const [sendingCommand, setSendingCommand] = useState(false);
+  const [commandHistory, setCommandHistory] = useState([]);
+  const [sensorDataHistory, setSensorDataHistory] = useState([]);
+  const [currentSensorData, setCurrentSensorData] = useState(null);
   
   const refreshIntervalRef = useRef(null);
+  const sensorDataIntervalRef = useRef(null);
 
-  // Test API connection and load data on mount
   useEffect(() => {
     testApiConnection();
     loadDevices();
@@ -46,7 +45,61 @@ function App() {
     loadTopics();
   }, []);
 
-  // Auto-refresh effect
+  const loadSensorData = async () => {
+    if (!selectedDevice) return;
+    
+    try {
+      const response = await axios.get(`${API_BASE_PATH}/sensor-data/${selectedDevice}`);
+      console.log('[DEBUG] Sensor data response:', response.data);
+      
+      if (response.data && response.data.success && response.data.data) {
+        const sensorData = response.data.data;
+        
+        if (sensorData.temperature !== undefined || sensorData.humidity !== undefined) {
+          setCurrentSensorData({
+            deviceId: sensorData.deviceId,
+            temperature: sensorData.temperature,
+            humidity: sensorData.humidity,
+            timestamp: sensorData.timestamp || Date.now()
+          });
+          
+          setSensorDataHistory(prev => {
+            const updated = [...prev, {
+              deviceId: sensorData.deviceId,
+              temperature: sensorData.temperature,
+              humidity: sensorData.humidity,
+              timestamp: new Date(sensorData.timestamp || Date.now())
+            }];
+            return updated.slice(-50);
+          });
+        }
+      }
+    } catch (error) {
+      console.error('[DEBUG] Load sensor data error:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedDevice && activeTab === 'control') {
+      loadSensorData();
+      sensorDataIntervalRef.current = setInterval(() => {
+        loadSensorData();
+      }, 1000);
+    } else {
+      if (sensorDataIntervalRef.current) {
+        clearInterval(sensorDataIntervalRef.current);
+        sensorDataIntervalRef.current = null;
+      }
+    }
+    
+    return () => {
+      if (sensorDataIntervalRef.current) {
+        clearInterval(sensorDataIntervalRef.current);
+        sensorDataIntervalRef.current = null;
+      }
+    };
+  }, [selectedDevice, activeTab]);
+
   useEffect(() => {
     if (autoRefresh) {
       refreshIntervalRef.current = setInterval(() => {
@@ -78,7 +131,6 @@ function App() {
     };
   }, [autoRefresh, refreshInterval, activeTab]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (refreshIntervalRef.current) {
@@ -88,19 +140,28 @@ function App() {
   }, []);
 
   const testApiConnection = async () => {
+    console.log('[DEBUG] Testing API connection to:', `${API_BASE_PATH}/status`);
     try {
       const response = await axios.get(`${API_BASE_PATH}/status`);
-      // Ensure response has expected format
+      console.log('[DEBUG] API status response:', response.status);
+      console.log('[DEBUG] API status data:', response.data);
+      
       if (response.data && response.data.broker && response.data.mqtt) {
         setApiStatus(response.data);
         setError(null);
-        console.log('API Status:', response.data);
+        console.log('[DEBUG] API Status set:', response.data);
       } else {
-        console.warn('Unexpected API status format:', response.data);
+        console.warn('[DEBUG] Unexpected API status format:', response.data);
         setError('Invalid API response format');
       }
     } catch (err) {
-      console.error('API connection error:', err);
+      console.error('[DEBUG] API connection error:', err);
+      console.error('[DEBUG] Error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status,
+        request: err.request
+      });
       setApiStatus(null);
       if (err.response) {
         setError(`API Error: ${err.response.status} - ${err.response.statusText}`);
@@ -113,21 +174,38 @@ function App() {
   };
 
   const loadDevices = async () => {
+    console.log('[DEBUG] Loading devices from:', `${API_BASE_PATH}/devices`);
     setLoading(true);
     try {
       const response = await axios.get(`${API_BASE_PATH}/devices`);
-      // Check response format matches API
+      console.log('[DEBUG] Devices response status:', response.status);
+      console.log('[DEBUG] Devices response data:', response.data);
+      
       if (response.data && Array.isArray(response.data.devices)) {
+        console.log('[DEBUG] Loaded devices count:', response.data.devices.length);
         setDevices(response.data.devices);
+        
+        // Auto-select first device if available and no device is selected (only on initial load)
+        if (response.data.devices.length > 0 && !selectedDevice && devices.length === 0) {
+          setSelectedDevice(response.data.devices[0].deviceId);
+          console.log('[DEBUG] Auto-selected first device:', response.data.devices[0].deviceId);
+        }
+        
         setLastRefresh(new Date());
         setError(null);
+        console.log('[DEBUG] Devices set successfully');
       } else {
-        console.warn('Unexpected devices response format:', response.data);
+        console.warn('[DEBUG] Unexpected devices response format:', response.data);
         setDevices([]);
         setError('Invalid devices response format');
       }
     } catch (err) {
-      console.error('Load devices error:', err);
+      console.error('[DEBUG] Load devices error:', err);
+      console.error('[DEBUG] Error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status
+      });
       setDevices([]);
       if (err.response?.data?.error) {
         setError(`Failed to load devices: ${err.response.data.error}`);
@@ -136,10 +214,12 @@ function App() {
       }
     } finally {
       setLoading(false);
+      console.log('[DEBUG] Load devices completed');
     }
   };
 
   const loadLogs = async () => {
+    console.log('[DEBUG] Loading logs with filters:', { logLevelFilter, deviceFilter });
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -147,19 +227,30 @@ function App() {
       if (deviceFilter) params.append('deviceId', deviceFilter);
       params.append('limit', '50');
       
-      const response = await axios.get(`${API_BASE_PATH}/logs?${params}`);
-      // Check response format matches API
+      const url = `${API_BASE_PATH}/logs?${params}`;
+      console.log('[DEBUG] Loading logs from:', url);
+      
+      const response = await axios.get(url);
+      console.log('[DEBUG] Logs response status:', response.status);
+      console.log('[DEBUG] Logs response data:', response.data);
+      
       if (response.data && Array.isArray(response.data.logs)) {
+        console.log('[DEBUG] Loaded logs count:', response.data.logs.length);
         setLogs(response.data.logs);
         setLastRefresh(new Date());
         setError(null);
       } else {
-        console.warn('Unexpected logs response format:', response.data);
+        console.warn('[DEBUG] Unexpected logs response format:', response.data);
         setLogs([]);
         setError('Invalid logs response format');
       }
     } catch (err) {
-      console.error('Load logs error:', err);
+      console.error('[DEBUG] Load logs error:', err);
+      console.error('[DEBUG] Error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status
+      });
       setLogs([]);
       if (err.response?.data?.error) {
         setError(`Failed to load logs: ${err.response.data.error}`);
@@ -168,25 +259,36 @@ function App() {
       }
     } finally {
       setLoading(false);
+      console.log('[DEBUG] Load logs completed');
     }
   };
 
   const loadTopics = async () => {
+    console.log('[DEBUG] Loading topics from:', `${API_BASE_PATH}/topics`);
     setLoading(true);
     try {
       const response = await axios.get(`${API_BASE_PATH}/topics`);
-      // Check response format matches API
+      console.log('[DEBUG] Topics response status:', response.status);
+      console.log('[DEBUG] Topics response data:', response.data);
+      
       if (response.data && Array.isArray(response.data.topics)) {
+        console.log('[DEBUG] Loaded topics count:', response.data.topics.length);
         setTopics(response.data.topics);
         setLastRefresh(new Date());
         setError(null);
+        console.log('[DEBUG] Topics set successfully');
       } else {
-        console.warn('Unexpected topics response format:', response.data);
+        console.warn('[DEBUG] Unexpected topics response format:', response.data);
         setTopics([]);
         setError('Invalid topics response format');
       }
     } catch (err) {
-      console.error('Load topics error:', err);
+      console.error('[DEBUG] Load topics error:', err);
+      console.error('[DEBUG] Error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status
+      });
       setTopics([]);
       if (err.response?.data?.error) {
         setError(`Failed to load topics: ${err.response.data.error}`);
@@ -195,6 +297,7 @@ function App() {
       }
     } finally {
       setLoading(false);
+      console.log('[DEBUG] Load topics completed');
     }
   };
 
@@ -240,87 +343,291 @@ function App() {
   };
 
   const sendCommand = async () => {
-    if (!selectedDevice) {
-      message.error('Please select a device');
-      return;
-    }
+    console.log('[DEBUG] sendCommand called');
+    console.log('[DEBUG] selectedDevice:', selectedDevice);
+    console.log('[DEBUG] commandData:', commandData);
     
-    if (!commandTopic) {
-      message.error('Please enter a topic');
+    if (!selectedDevice) {
+      console.warn('[DEBUG] No device selected');
+      message.error('Vui lòng chọn thiết bị');
       return;
     }
     
     if (!commandData) {
-      message.error('Please enter command data');
+      console.warn('[DEBUG] No command data');
+      message.error('Vui lòng nhập dữ liệu lệnh');
       return;
     }
     
     setSendingCommand(true);
+    console.log('[DEBUG] Setting sendingCommand to true');
     
     try {
-      // Parse JSON data if it's a string
       let parsedData;
       try {
         parsedData = JSON.parse(commandData);
+        console.log('[DEBUG] Parsed JSON data:', parsedData);
       } catch (e) {
-        // If not valid JSON, treat as plain text
         parsedData = commandData;
+        console.log('[DEBUG] Using plain text data:', parsedData);
       }
       
-      // Send command according to API format
-      const response = await axios.post(`${API_BASE_PATH}/devices/${selectedDevice}/command`, {
-        topic: commandTopic,
+      const topic = `iot/sensor/ctl/${selectedDevice}`;
+      console.log('[DEBUG] Generated topic:', topic);
+      console.log('[DEBUG] Sending command to:', `${API_BASE_PATH}/devices/${selectedDevice}/command`);
+      
+      const payload = {
+        topic: topic,
         data: parsedData,
         qos: 0,
         retain: false
-      });
+      };
+      console.log('[DEBUG] Request payload:', JSON.stringify(payload, null, 2));
       
-      // Check response format matches API
+      const response = await axios.post(`${API_BASE_PATH}/devices/${selectedDevice}/command`, payload);
+      console.log('[DEBUG] Response received:', response.data);
+      console.log('[DEBUG] Response status:', response.status);
+      
       if (response.data && response.data.success) {
-        message.success(`Command sent successfully to ${selectedDevice}`);
-        console.log('Command sent:', response.data);
+        console.log('[DEBUG] Command sent successfully');
+        message.success(`Đã gửi lệnh thành công đến ${selectedDevice}`);
+        console.log('[DEBUG] Full response:', JSON.stringify(response.data, null, 2));
         
-        // Clear form
+        // Add to command history
+        const historyEntry = {
+          id: Date.now(),
+          timestamp: new Date().toISOString(),
+          deviceId: selectedDevice,
+          topic: topic,
+          data: parsedData,
+          status: 'success',
+          response: response.data
+        };
+        setCommandHistory(prev => [historyEntry, ...prev].slice(0, 50)); // Keep last 50 commands
+        
         setCommandData('');
-        
-        // Refresh logs to show the sent command
+        console.log('[DEBUG] Cleared command data');
         loadLogs();
       } else {
-        const errorMsg = response.data?.error || 'Failed to send command';
+        const errorMsg = response.data?.error || 'Gửi lệnh thất bại';
+        console.error('[DEBUG] Command failed:', errorMsg);
+        console.error('[DEBUG] Response data:', response.data);
+        
+        // Add to command history with failed status
+        const historyEntry = {
+          id: Date.now(),
+          timestamp: new Date().toISOString(),
+          deviceId: selectedDevice,
+          topic: topic,
+          data: parsedData,
+          status: 'failed',
+          error: errorMsg
+        };
+        setCommandHistory(prev => [historyEntry, ...prev].slice(0, 50));
+        
         message.error(errorMsg);
       }
     } catch (error) {
-      console.error('Send command error:', error);
-      if (error.response?.data?.error) {
-        message.error(`Error: ${error.response.data.error}`);
-      } else if (error.response?.status === 400) {
-        message.error('Invalid command parameters');
-      } else if (error.response?.status === 404) {
-        message.error('Device not found');
+      console.error('[DEBUG] Send command error:', error);
+      console.error('[DEBUG] Error message:', error.message);
+      console.error('[DEBUG] Error stack:', error.stack);
+      
+      // Add to command history on error
+      const historyEntry = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        deviceId: selectedDevice || 'unknown',
+        topic: selectedDevice ? `iot/sensor/ctl/${selectedDevice}` : 'unknown',
+        data: commandData,
+        status: 'error',
+        error: error.message || 'Lỗi không xác định'
+      };
+      setCommandHistory(prev => [historyEntry, ...prev].slice(0, 50));
+      
+      if (error.response) {
+        console.error('[DEBUG] Error response status:', error.response.status);
+        console.error('[DEBUG] Error response data:', error.response.data);
+        console.error('[DEBUG] Error response headers:', error.response.headers);
+      } else if (error.request) {
+        console.error('[DEBUG] No response received. Request:', error.request);
       } else {
-        message.error('Failed to send command. Please try again.');
+        console.error('[DEBUG] Error setting up request:', error.message);
+      }
+      
+      if (error.response?.data?.error) {
+        message.error(`Lỗi: ${error.response.data.error}`);
+      } else if (error.response?.status === 400) {
+        message.error('Tham số lệnh không hợp lệ');
+      } else if (error.response?.status === 404) {
+        message.error('Không tìm thấy thiết bị');
+      } else {
+        message.error('Gửi lệnh thất bại. Vui lòng thử lại.');
       }
     } finally {
       setSendingCommand(false);
+      console.log('[DEBUG] Setting sendingCommand to false');
     }
   };
 
-  const presetTopics = [
-    'iot/device/command',
-    'iot/actuator/control',
-    'iot/device/status',
-    'iot/device/heartbeat'
-  ];
-
   const tabs = [
-    { key: 'devices', label: 'Devices', icon: <DesktopOutlined /> },
-    { key: 'control', label: 'Control', icon: <ControlOutlined /> },
-    { key: 'logs', label: 'Logs', icon: <FileTextOutlined /> },
-    { key: 'topics', label: 'Topics', icon: <SendOutlined /> }
+    { key: 'overview', label: 'Tổng quan dự án', icon: <DashboardOutlined /> },
+    { key: 'devices', label: 'Thiết bị', icon: <DesktopOutlined /> },
+    { key: 'control', label: 'Điều khiển', icon: <ControlOutlined /> },
+    { key: 'logs', label: 'Nhật ký', icon: <FileTextOutlined /> },
+    { key: 'topics', label: 'Chủ đề', icon: <SendOutlined /> }
   ];
 
   const renderContent = () => {
     switch (activeTab) {
+      case 'overview':
+        return (
+          <Card 
+            title="Tổng quan dự án"
+            className="content-card"
+          >
+            <Space direction="vertical" size="large" style={{ width: '100%' }}>
+              <div>
+                <Title level={3}>IoT Device Management System - Nhóm 10</Title>
+                <Text type="secondary">
+                  Hệ thống quản lý và điều khiển thiết bị IoT sử dụng MQTT protocol
+                </Text>
+              </div>
+
+              <Divider />
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} md={12} lg={8}>
+                  <Card title="Thống kê tổng quan" size="small">
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Text>Tổng thiết bị:</Text>
+                        <Text strong>{devices.length}</Text>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Text>Đang online:</Text>
+                        <Tag color="green">{devices.filter(d => d.status === 'online').length}</Tag>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Text>Đang offline:</Text>
+                        <Tag color="red">{devices.filter(d => d.status === 'offline').length}</Tag>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Text>Tổng logs:</Text>
+                        <Text strong>{logs.length}</Text>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Text>Tổng topics:</Text>
+                        <Text strong>{topics.length}</Text>
+                      </div>
+                    </Space>
+                  </Card>
+                </Col>
+
+                <Col xs={24} md={12} lg={8}>
+                  <Card title="Kết nối" size="small">
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Text>API Server:</Text>
+                        <Tag color={apiStatus ? 'green' : 'red'}>
+                          {apiStatus ? 'Kết nối' : 'Mất kết nối'}
+                        </Tag>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Text>MQTT Broker:</Text>
+                        <Tag color={apiStatus?.mqtt?.connected ? 'green' : 'red'}>
+                          {apiStatus?.mqtt?.connected ? 'Kết nối' : 'Mất kết nối'}
+                        </Tag>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Text>Redis:</Text>
+                        <Tag color={apiStatus?.redis?.connected ? 'green' : 'red'}>
+                          {apiStatus?.redis?.connected ? 'Kết nối' : 'Mất kết nối'}
+                        </Tag>
+                      </div>
+                    </Space>
+                  </Card>
+                </Col>
+
+                <Col xs={24} md={12} lg={8}>
+                  <Card title="Thông tin hệ thống" size="small">
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <div>
+                        <Text strong>Cổng MQTT:</Text>
+                        <Text code style={{ marginLeft: 8 }}>
+                          {apiStatus?.broker?.mqttPort || 'N/A'}
+                        </Text>
+                      </div>
+                      <div>
+                        <Text strong>Cổng API Server:</Text>
+                        <Text code style={{ marginLeft: 8 }}>
+                          {apiStatus?.server?.port || 'N/A'}
+                        </Text>
+                      </div>
+                      {lastRefresh && (
+                        <div>
+                          <Text type="secondary" style={{ fontSize: '12px' }}>
+                            Cập nhật lần cuối: {lastRefresh.toLocaleTimeString()}
+                          </Text>
+                        </div>
+                      )}
+                    </Space>
+                  </Card>
+                </Col>
+              </Row>
+
+              <Divider />
+
+              <Card title="Các chức năng chính" size="small">
+                <Row gutter={[16, 16]}>
+                  <Col xs={24} sm={12} md={6}>
+                    <Card size="small" hoverable>
+                      <Space direction="vertical" align="center" style={{ width: '100%', textAlign: 'center' }}>
+                        <DesktopOutlined style={{ fontSize: '24px', color: '#1890ff' }} />
+                        <Text strong>Quản lý thiết bị</Text>
+                        <Text type="secondary" style={{ fontSize: '12px' }}>
+                          Xem danh sách, trạng thái và thông tin chi tiết của các thiết bị IoT
+                        </Text>
+                      </Space>
+                    </Card>
+                  </Col>
+                  <Col xs={24} sm={12} md={6}>
+                    <Card size="small" hoverable>
+                      <Space direction="vertical" align="center" style={{ width: '100%', textAlign: 'center' }}>
+                        <ControlOutlined style={{ fontSize: '24px', color: '#52c41a' }} />
+                        <Text strong>Điều khiển thiết bị</Text>
+                        <Text type="secondary" style={{ fontSize: '12px' }}>
+                          Gửi lệnh điều khiển đến thiết bị qua MQTT protocol
+                        </Text>
+                      </Space>
+                    </Card>
+                  </Col>
+                  <Col xs={24} sm={12} md={6}>
+                    <Card size="small" hoverable>
+                      <Space direction="vertical" align="center" style={{ width: '100%', textAlign: 'center' }}>
+                        <FileTextOutlined style={{ fontSize: '24px', color: '#faad14' }} />
+                        <Text strong>Nhật ký hệ thống</Text>
+                        <Text type="secondary" style={{ fontSize: '12px' }}>
+                          Xem log hoạt động của hệ thống và các thiết bị
+                        </Text>
+                      </Space>
+                    </Card>
+                  </Col>
+                  <Col xs={24} sm={12} md={6}>
+                    <Card size="small" hoverable>
+                      <Space direction="vertical" align="center" style={{ width: '100%', textAlign: 'center' }}>
+                        <SendOutlined style={{ fontSize: '24px', color: '#722ed1' }} />
+                        <Text strong>Quản lý topics</Text>
+                        <Text type="secondary" style={{ fontSize: '12px' }}>
+                          Xem danh sách và thống kê các MQTT topics
+                        </Text>
+                      </Space>
+                    </Card>
+                  </Col>
+                </Row>
+              </Card>
+            </Space>
+          </Card>
+        );
       case 'devices':
         return (
           <Card 
@@ -352,7 +659,7 @@ function App() {
             extra={
               lastRefresh && (
                 <Text type="secondary" style={{ fontSize: '12px' }}>
-                  <ClockCircleOutlined /> Last updated: {lastRefresh.toLocaleTimeString()}
+                  <ClockCircleOutlined /> Cập nhật lần cuối: {lastRefresh.toLocaleTimeString()}
                 </Text>
               )
             }
@@ -360,25 +667,25 @@ function App() {
             <div className="device-stats">
               <Row gutter={16}>
                 <Col span={6}>
-                  <Statistic title="Total Devices" value={devices.length} />
+                  <Statistic title="Tổng thiết bị" value={devices.length} />
                 </Col>
                 <Col span={6}>
                   <Statistic 
-                    title="Online" 
+                    title="Đang online" 
                     value={devices.filter(d => d.status === 'online').length}
                     valueStyle={{ color: '#52c41a' }}
                   />
                 </Col>
                 <Col span={6}>
                   <Statistic 
-                    title="Offline" 
+                    title="Đang offline" 
                     value={devices.filter(d => d.status === 'offline').length}
                     valueStyle={{ color: '#ff4d4f' }}
                   />
                 </Col>
                 <Col span={6}>
                   <Statistic 
-                    title="Messages" 
+                    title="Tin nhắn" 
                     value={devices.reduce((sum, d) => sum + (d.messageCount || 0), 0)}
                   />
                 </Col>
@@ -413,31 +720,31 @@ function App() {
                         }
                         extra={
                       <Tag color={device.status === 'online' ? 'green' : 'red'}>
-                        {device.status}
+                        {device.status === 'online' ? 'Trực tuyến' : 'Ngoại tuyến'}
                       </Tag>
                         }
                       >
                         <Space direction="vertical" style={{ width: '100%' }}>
                           <div>
-                            <Text type="secondary">Type:</Text>
+                            <Text type="secondary">Loại:</Text>
                             <br />
                             <Tag color="blue">{device.deviceType}</Tag>
                           </div>
                           
                           <div>
-                            <Text type="secondary">Location:</Text>
+                            <Text type="secondary">Vị trí:</Text>
                             <br />
                             <Text>{device.location}</Text>
                           </div>
                           
                           <div>
-                            <Text type="secondary">Firmware:</Text>
+                            <Text type="secondary">Phiên bản:</Text>
                             <br />
                             <Text code>{device.firmware}</Text>
                           </div>
                           
                           <div>
-                            <Text type="secondary">Capabilities:</Text>
+                            <Text type="secondary">Khả năng:</Text>
                             <br />
                             <Space wrap>
                               {device.capabilities?.map(cap => (
@@ -451,14 +758,14 @@ function App() {
                           <Row gutter={8}>
                             <Col span={12}>
                               <Statistic 
-                                title="Uptime" 
+                                title="Thời gian hoạt động" 
                                 value={formatUptime(device.uptime || 0)}
                                 valueStyle={{ fontSize: '12px' }}
                               />
                             </Col>
                             <Col span={12}>
                               <Statistic 
-                                title="Messages" 
+                                title="Tin nhắn" 
                                 value={device.messageCount || 0}
                                 valueStyle={{ fontSize: '12px' }}
                               />
@@ -466,7 +773,7 @@ function App() {
                           </Row>
                           
                           <div>
-                            <Text type="secondary">Memory:</Text>
+                            <Text type="secondary">Bộ nhớ:</Text>
                             <br />
                             <Text style={{ fontSize: '12px' }}>
                               {formatMemory(device.memory?.heapUsed || 0)} / {formatMemory(device.memory?.heapTotal || 0)}
@@ -475,7 +782,7 @@ function App() {
                           
                           {device.lastSensorData && (
                             <div>
-                              <Text type="secondary">Last Data:</Text>
+                              <Text type="secondary">Dữ liệu cuối:</Text>
                               <br />
                               <Space wrap>
                                 {Object.entries(device.lastSensorData.sensors || {}).map(([key, sensor]) => (
@@ -489,7 +796,7 @@ function App() {
                           
                           <div>
                             <Text type="secondary" style={{ fontSize: '11px' }}>
-                              Last seen: {new Date(device.lastSeen).toLocaleString()}
+                              Lần cuối: {new Date(device.lastSeen).toLocaleString()}
                             </Text>
                           </div>
                     </Space>
@@ -502,10 +809,10 @@ function App() {
             
             {devices.length === 0 && !loading && (
               <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                <Text type="secondary">No devices found</Text>
+                <Text type="secondary">Không tìm thấy thiết bị</Text>
                 <br />
                 <Button type="link" onClick={loadDevices}>
-                  Load Devices
+                  Tải thiết bị
                 </Button>
               </div>
             )}
@@ -516,10 +823,10 @@ function App() {
           <Card 
             title={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Device Control</span>
+                <span>Điều khiển thiết bị</span>
                 <Space>
                   <Tag color={apiStatus?.mqtt?.connected ? 'green' : 'red'}>
-                    MQTT {apiStatus?.mqtt?.connected ? 'Connected' : 'Disconnected'}
+                    MQTT {apiStatus?.mqtt?.connected ? 'Đã kết nối' : 'Mất kết nối'}
                   </Tag>
                 </Space>
               </div>
@@ -529,70 +836,225 @@ function App() {
             <Row gutter={24}>
               {/* Command Form */}
               <Col xs={24} lg={18}>
-                <Card title="Send Command" size="small">
+                {/* Device Selection */}
+                <Card size="small" style={{ marginBottom: 16 }}>
+                  <div>
+                    <Text strong>Chọn thiết bị:</Text>
+                    <Select
+                      placeholder="Chọn thiết bị"
+                      style={{ width: '100%', marginTop: 8 }}
+                      value={selectedDevice}
+                      onChange={setSelectedDevice}
+                      showSearch
+                      filterOption={(input, option) =>
+                        option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                      }
+                    >
+                      {devices.map(device => (
+                        <Option key={device.deviceId} value={device.deviceId}>
+                          <Space>
+                            <Badge 
+                              status={device.status === 'online' ? 'success' : 'error'} 
+                              text={device.deviceId}
+                            />
+                            <Text type="secondary">({device.deviceType})</Text>
+                          </Space>
+                        </Option>
+                      ))}
+                    </Select>
+                  </div>
+                </Card>
+                
+                {/* Real-time Chart */}
+                {selectedDevice && (
+                  <Card 
+                    title={
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                        <span>Dữ liệu thời gian thực - {selectedDevice}</span>
+                        <Space size="small" style={{ marginLeft: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <div style={{ width: 12, height: 12, backgroundColor: '#ff4d4f', borderRadius: 2 }}></div>
+                            <Text style={{ fontSize: '12px' }}>Nhiệt độ</Text>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <div style={{ width: 12, height: 12, backgroundColor: '#1890ff', borderRadius: 2 }}></div>
+                            <Text style={{ fontSize: '12px' }}>Độ ẩm</Text>
+                          </div>
+                        </Space>
+                      </div>
+                    }
+                    size="small"
+                    style={{ marginBottom: 16 }}
+                    extra={
+                      currentSensorData && (
+                        <Space>
+                          <Tag color="red">Nhiệt độ: {currentSensorData.temperature}°C</Tag>
+                          <Tag color="blue">Độ ẩm: {currentSensorData.humidity}%</Tag>
+                        </Space>
+                      )
+                    }
+                  >
+                    {sensorDataHistory.length > 0 ? (
+                      <div style={{ width: '100%', height: '333px', position: 'relative' }}>
+                        <svg 
+                          width="100%" 
+                          height="100%" 
+                          viewBox="0 0 1000 333"
+                          preserveAspectRatio="none"
+                          style={{ border: '1px solid #f0f0f0', borderRadius: 4 }}
+                        >
+                          {(() => {
+                            const padding = 50;
+                            const width = 1000;
+                            const height = 333;
+                            const chartWidth = width - 2 * padding;
+                            const chartHeight = height - 2 * padding;
+                            
+                            const tempData = sensorDataHistory.map(d => d.temperature || 0);
+                            const humData = sensorDataHistory.map(d => d.humidity || 0);
+                            const maxTemp = Math.max(...tempData, 35);
+                            const minTemp = Math.min(...tempData, 15);
+                            const maxHum = Math.max(...humData, 100);
+                            const minHum = Math.min(...humData, 0);
+                            
+                            const tempRange = maxTemp - minTemp || 20;
+                            const humRange = maxHum - minHum || 100;
+                            
+                            const getX = (index) => padding + (index / (sensorDataHistory.length - 1 || 1)) * chartWidth;
+                            const getTempY = (value) => padding + chartHeight - ((value - minTemp) / tempRange) * chartHeight;
+                            const getHumY = (value) => padding + chartHeight - ((value - minHum) / humRange) * chartHeight;
+                            
+                            const tempPath = sensorDataHistory.map((d, i) => {
+                              const x = getX(i);
+                              const y = getTempY(d.temperature || 0);
+                              return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`;
+                            }).join(' ');
+                            
+                            const humPath = sensorDataHistory.map((d, i) => {
+                              const x = getX(i);
+                              const y = getHumY(d.humidity || 0);
+                              return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`;
+                            }).join(' ');
+                            
+                            return (
+                              <g>
+                                {/* Grid lines */}
+                                {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => (
+                                  <g key={i}>
+                                    <line
+                                      x1={padding}
+                                      y1={padding + ratio * chartHeight}
+                                      x2={width - padding}
+                                      y2={padding + ratio * chartHeight}
+                                      stroke="#f0f0f0"
+                                      strokeWidth="1"
+                                    />
+                                    <text
+                                      x={padding - 50}
+                                      y={padding + ratio * chartHeight + 4}
+                                      fontSize="12"
+                                      fill="#8c8c8c"
+                                    >
+                                      {ratio === 0 ? Math.round(maxTemp) : ratio === 1 ? Math.round(minTemp) : ''}
+                                    </text>
+                                    <text
+                                      x={width - padding + 15}
+                                      y={padding + ratio * chartHeight + 4}
+                                      fontSize="12"
+                                      fill="#8c8c8c"
+                                    >
+                                      {ratio === 0 ? Math.round(maxHum) : ratio === 1 ? Math.round(minHum) : ''}
+                                    </text>
+                                  </g>
+                                ))}
+                                
+                                {/* Temperature line */}
+                                <path
+                                  d={tempPath}
+                                  fill="none"
+                                  stroke="#ff4d4f"
+                                  strokeWidth="3"
+                                />
+                                
+                                {/* Humidity line */}
+                                <path
+                                  d={humPath}
+                                  fill="none"
+                                  stroke="#1890ff"
+                                  strokeWidth="3"
+                                />
+                                
+                                {/* Data points */}
+                                {sensorDataHistory.map((d, i) => (
+                                  <g key={i}>
+                                    <circle
+                                      cx={getX(i)}
+                                      cy={getTempY(d.temperature || 0)}
+                                      r="4"
+                                      fill="#ff4d4f"
+                                    />
+                                    <circle
+                                      cx={getX(i)}
+                                      cy={getHumY(d.humidity || 0)}
+                                      r="4"
+                                      fill="#1890ff"
+                                    />
+                                  </g>
+                                ))}
+                                
+                                {/* Y-axis labels */}
+                                <text
+                                  x={width / 2}
+                                  y={padding - 15}
+                                  fontSize="14"
+                                  fill="#595959"
+                                  textAnchor="middle"
+                                  fontWeight="bold"
+                                >
+                                  Nhiệt độ (°C) / Độ ẩm (%)
+                                </text>
+                              </g>
+                            );
+                          })()}
+                        </svg>
+                        <div style={{ marginTop: 8, display: 'flex', justifyContent: 'center', gap: 24 }}>
+                          <Space>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <div style={{ width: 12, height: 12, backgroundColor: '#ff4d4f', borderRadius: 2 }}></div>
+                              <Text style={{ fontSize: '12px' }}>Nhiệt độ</Text>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <div style={{ width: 12, height: 12, backgroundColor: '#1890ff', borderRadius: 2 }}></div>
+                              <Text style={{ fontSize: '12px' }}>Độ ẩm</Text>
+                            </div>
+                          </Space>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ width: '100%', height: '333px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8c8c8c' }}>
+                        <Text type="secondary">Đang tải dữ liệu...</Text>
+                      </div>
+                    )}
+                  </Card>
+                )}
+                
+                <Card title="Gửi lệnh" size="small">
                   <Space direction="vertical" style={{ width: '100%' }}>
-                    {/* Device Selection */}
-                    <div>
-                      <Text strong>Target Device:</Text>
-                      <Select
-                        placeholder="Select a device"
-                        style={{ width: '100%', marginTop: 8 }}
-                        value={selectedDevice}
-                        onChange={setSelectedDevice}
-                        showSearch
-                        filterOption={(input, option) =>
-                          option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
-                        }
-                      >
-                        {devices.map(device => (
-                          <Option key={device.deviceId} value={device.deviceId}>
-                            <Space>
-                              <Badge 
-                                status={device.status === 'online' ? 'success' : 'error'} 
-                                text={device.deviceId}
-                              />
-                              <Text type="secondary">({device.deviceType})</Text>
-                            </Space>
-                          </Option>
-                        ))}
-                      </Select>
-                    </div>
-
-                    {/* Topic Selection */}
-                    <div>
-                      <Text strong>Topic:</Text>
-                      <Select
-                        placeholder="Select or enter topic"
-                        style={{ width: '100%', marginTop: 8 }}
-                        value={commandTopic}
-                        onChange={(value) => {
-                          // Auto-generate topic with device_id for sensor ctl
-                          if (value === 'iot/sensor/ctl' && selectedDevice) {
-                            setCommandTopic(`iot/sensor/ctl/${selectedDevice}`);
-                          } else {
-                            setCommandTopic(value);
-                          }
-                        }}
-                        showSearch
-                        allowClear
-                        mode="combobox"
-                        options={presetTopics.map(topic => ({
-                          value: topic,
-                          label: topic
-                        }))}
-                      />
-                      {selectedDevice && (
-                        <div style={{ marginTop: 4 }}>
-                          <Text type="secondary" style={{ fontSize: '12px' }}>
-                            💡 For sensor control, use: iot/sensor/ctl/{selectedDevice}
+                    {/* Topic Display */}
+                    {selectedDevice && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Text strong style={{ minWidth: '70px' }}>Topic:</Text>
+                        <div style={{ flex: 1, padding: '8px 12px', backgroundColor: '#f5f5f5', borderRadius: 4 }}>
+                          <Text code style={{ fontSize: '14px' }}>
+                            iot/sensor/ctl/{selectedDevice}
                           </Text>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
 
                     {/* Command Data */}
                     <div>
-                      <Text strong>Command Data (JSON):</Text>
+                      <Text strong>Dữ liệu lệnh (JSON):</Text>
                       <Input.TextArea
                         placeholder='{"action": "restart", "timestamp": "2024-01-01T00:00:00.000Z"}'
                         value={commandData}
@@ -601,7 +1063,7 @@ function App() {
                         style={{ marginTop: 8 }}
                       />
                       <Text type="secondary" style={{ fontSize: '12px' }}>
-                        Enter JSON data or plain text.
+                        Nhập dữ liệu JSON hoặc văn bản thường.
                       </Text>
                     </div>
 
@@ -611,11 +1073,11 @@ function App() {
                       icon={<SendIcon />}
                       onClick={sendCommand}
                       loading={sendingCommand}
-                      disabled={!selectedDevice || !commandTopic || !commandData}
+                      disabled={!selectedDevice || !commandData}
                       size="large"
                       style={{ width: '100%' }}
                     >
-                      Send Command
+                      Gửi lệnh
                     </Button>
                   </Space>
                 </Card>
@@ -623,28 +1085,96 @@ function App() {
 
               {/* Connection Status */}
               <Col xs={24} lg={6}>
-                <Card title="Connection Status" size="small">
-                  <Space direction="vertical" style={{ width: '100%' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Text>API Server:</Text>
-                      <Tag color={apiStatus ? 'green' : 'red'}>
-                        {apiStatus ? 'Connected' : 'Disconnected'}
-                      </Tag>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Text>MQTT Broker:</Text>
-                      <Tag color={apiStatus?.mqtt?.connected ? 'green' : 'red'}>
-                        {apiStatus?.mqtt?.connected ? 'Connected' : 'Disconnected'}
-                      </Tag>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Text>Redis:</Text>
-                      <Tag color={apiStatus?.redis?.connected ? 'green' : 'red'}>
-                        {apiStatus?.redis?.connected ? 'Connected' : 'Disconnected'}
-                      </Tag>
-                    </div>
-                  </Space>
-                </Card>
+                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                  <Card title="Connection Status" size="small">
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Text>API Server:</Text>
+                        <Tag color={apiStatus ? 'green' : 'red'}>
+                          {apiStatus ? 'Connected' : 'Disconnected'}
+                        </Tag>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Text>MQTT Broker:</Text>
+                        <Tag color={apiStatus?.mqtt?.connected ? 'green' : 'red'}>
+                          {apiStatus?.mqtt?.connected ? 'Connected' : 'Disconnected'}
+                        </Tag>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Text>Redis:</Text>
+                        <Tag color={apiStatus?.redis?.connected ? 'green' : 'red'}>
+                          {apiStatus?.redis?.connected ? 'Connected' : 'Disconnected'}
+                        </Tag>
+                      </div>
+                    </Space>
+                  </Card>
+
+                  {/* Command History */}
+                  <Card 
+                    title="Command History" 
+                    size="small"
+                    extra={
+                      commandHistory.length > 0 && (
+                        <Button 
+                          type="link" 
+                          size="small" 
+                          onClick={() => setCommandHistory([])}
+                        >
+                          Clear
+                        </Button>
+                      )
+                    }
+                    style={{ maxHeight: '500px', overflow: 'auto' }}
+                  >
+                    {commandHistory.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '20px 0', color: '#8c8c8c' }}>
+                        <Text type="secondary">No commands sent yet</Text>
+                      </div>
+                    ) : (
+                      <Timeline size="small">
+                        {commandHistory.map((cmd, index) => (
+                          <Timeline.Item
+                            key={cmd.id}
+                            color={cmd.status === 'success' ? 'green' : 'red'}
+                            dot={cmd.status === 'success' ? <ClockCircleOutlined /> : <ClockCircleOutlined />}
+                          >
+                            <div style={{ marginBottom: 8 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                <Text strong style={{ fontSize: '12px' }}>{cmd.deviceId}</Text>
+                                <Tag color={cmd.status === 'success' ? 'green' : 'red'} size="small">
+                                  {cmd.status}
+                                </Tag>
+                              </div>
+                              <Text type="secondary" style={{ fontSize: '11px', display: 'block', marginBottom: 4 }}>
+                                {new Date(cmd.timestamp).toLocaleTimeString()}
+                              </Text>
+                              <Text code style={{ fontSize: '10px', display: 'block', marginBottom: 4 }}>
+                                {cmd.topic}
+                              </Text>
+                              <div style={{ 
+                                padding: '4px 8px', 
+                                backgroundColor: '#f5f5f5', 
+                                borderRadius: 4,
+                                maxHeight: '60px',
+                                overflow: 'auto',
+                                fontSize: '10px'
+                              }}>
+                                <Text style={{ fontSize: '10px', wordBreak: 'break-all' }}>
+                                  {typeof cmd.data === 'object' 
+                                    ? JSON.stringify(cmd.data, null, 2).substring(0, 100)
+                                    : String(cmd.data).substring(0, 100)}
+                                  {(typeof cmd.data === 'object' && JSON.stringify(cmd.data).length > 100) ||
+                                   (typeof cmd.data === 'string' && cmd.data.length > 100)
+                                    ? '...' : ''}
+                                </Text>
+                              </div>
+                            </div>
+                          </Timeline.Item>
+                        ))}
+                      </Timeline>
+                    )}
+                  </Card>
+                </Space>
               </Col>
             </Row>
           </Card>
@@ -662,14 +1192,14 @@ function App() {
           <Card 
             title={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>System Logs</span>
+                <span>Nhật ký hệ thống</span>
                 <Space>
-                  <Tooltip title="Auto-refresh every 5 seconds">
+                  <Tooltip title="Tự động làm mới mỗi 5 giây">
                     <Switch 
                       checked={autoRefresh} 
                       onChange={setAutoRefresh}
-                      checkedChildren="Auto"
-                      unCheckedChildren="Manual"
+                      checkedChildren="Tự động"
+                      unCheckedChildren="Thủ công"
                     />
                   </Tooltip>
                   <Button 
@@ -679,7 +1209,7 @@ function App() {
                     loading={loading}
                     size="small"
                   >
-                    Refresh
+                    Làm mới
                   </Button>
                 </Space>
               </div>
@@ -688,7 +1218,7 @@ function App() {
             extra={
               lastRefresh && (
                 <Text type="secondary" style={{ fontSize: '12px' }}>
-                  <ClockCircleOutlined /> Last updated: {lastRefresh.toLocaleTimeString()}
+                  <ClockCircleOutlined /> Cập nhật lần cuối: {lastRefresh.toLocaleTimeString()}
                 </Text>
               )
             }
@@ -697,25 +1227,25 @@ function App() {
             <div className="device-stats">
               <Row gutter={16}>
                 <Col span={6}>
-                  <Statistic title="Total Logs" value={logs.length} />
+                  <Statistic title="Tổng logs" value={logs.length} />
                 </Col>
                 <Col span={6}>
                   <Statistic 
-                    title="Errors" 
+                    title="Lỗi" 
                     value={logs.filter(l => l.level === 'error').length}
                     valueStyle={{ color: '#ff4d4f' }}
                   />
                 </Col>
                 <Col span={6}>
                   <Statistic 
-                    title="Warnings" 
+                    title="Cảnh báo" 
                     value={logs.filter(l => l.level === 'warning').length}
                     valueStyle={{ color: '#fa8c16' }}
                   />
                 </Col>
                 <Col span={6}>
                   <Statistic 
-                    title="Info" 
+                    title="Thông tin" 
                     value={logs.filter(l => l.level === 'info').length}
                     valueStyle={{ color: '#1890ff' }}
                   />
@@ -730,21 +1260,21 @@ function App() {
               <Row gutter={16}>
                 <Col span={8}>
                   <Select
-                    placeholder="Filter by Level"
+                    placeholder="Lọc theo mức độ"
                     allowClear
                     style={{ width: '100%' }}
                     value={logLevelFilter}
                     onChange={setLogLevelFilter}
                   >
-                    <Option value="error">Error</Option>
-                    <Option value="warning">Warning</Option>
-                    <Option value="info">Info</Option>
+                    <Option value="error">Lỗi</Option>
+                    <Option value="warning">Cảnh báo</Option>
+                    <Option value="info">Thông tin</Option>
                     <Option value="debug">Debug</Option>
                   </Select>
                 </Col>
                 <Col span={8}>
                   <Select
-                    placeholder="Filter by Device"
+                    placeholder="Lọc theo thiết bị"
                     allowClear
                     style={{ width: '100%' }}
                     value={deviceFilter}
@@ -759,7 +1289,7 @@ function App() {
                 </Col>
                 <Col span={8}>
                   <Search
-                    placeholder="Search logs..."
+                    placeholder="Tìm kiếm logs..."
                     allowClear
                     value={topicSearch}
                     onChange={(e) => setTopicSearch(e.target.value)}
@@ -803,10 +1333,10 @@ function App() {
               </Timeline>
             ) : (
               <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                <Text type="secondary">No logs found</Text>
+                <Text type="secondary">Không tìm thấy logs</Text>
                 <br />
                 <Button type="link" onClick={loadLogs}>
-                  Load Logs
+                  Tải logs
                 </Button>
               </div>
             )}
@@ -823,27 +1353,27 @@ function App() {
 
         const topicColumns = [
           {
-            title: 'Topic Name',
+            title: 'Tên chủ đề',
             dataIndex: 'name',
             key: 'name',
             render: (text) => <Text code>{text}</Text>,
             sorter: (a, b) => a.name.localeCompare(b.name),
           },
           {
-            title: 'Type',
+            title: 'Loại',
             dataIndex: 'type',
             key: 'type',
             render: (type) => <Tag color={getTopicTypeColor(type)}>{type}</Tag>,
             filters: [
-              { text: 'Device', value: 'device' },
-              { text: 'Sensor', value: 'sensor' },
-              { text: 'Actuator', value: 'actuator' },
-              { text: 'System', value: 'system' },
+              { text: 'Thiết bị', value: 'device' },
+              { text: 'Cảm biến', value: 'sensor' },
+              { text: 'Bộ điều khiển', value: 'actuator' },
+              { text: 'Hệ thống', value: 'system' },
             ],
             onFilter: (value, record) => record.type === value,
           },
           {
-            title: 'Subscribers',
+            title: 'Người đăng ký',
             dataIndex: 'subscribers',
             key: 'subscribers',
             render: (subscribers) => (
@@ -852,21 +1382,21 @@ function App() {
             sorter: (a, b) => a.subscribers - b.subscribers,
           },
           {
-            title: 'Messages',
+            title: 'Tin nhắn',
             dataIndex: 'messageCount',
             key: 'messageCount',
             render: (count) => <Statistic value={count} valueStyle={{ fontSize: '14px' }} />,
             sorter: (a, b) => a.messageCount - b.messageCount,
           },
           {
-            title: 'Last Message',
+            title: 'Tin nhắn cuối',
             dataIndex: 'lastMessage',
             key: 'lastMessage',
-            render: (timestamp) => timestamp ? new Date(timestamp).toLocaleString() : 'Never',
+            render: (timestamp) => timestamp ? new Date(timestamp).toLocaleString() : 'Chưa có',
             sorter: (a, b) => new Date(a.lastMessage || 0) - new Date(b.lastMessage || 0),
           },
           {
-            title: 'Actions',
+            title: 'Hành động',
             key: 'actions',
             render: (_, record) => (
               <Space>
@@ -874,11 +1404,10 @@ function App() {
                   size="small" 
                   type="link"
                   onClick={() => {
-                    // TODO: Implement topic details modal
                     console.log('View topic details:', record.name);
                   }}
                 >
-                  View Details
+                  Xem chi tiết
                 </Button>
               </Space>
             ),
@@ -889,14 +1418,14 @@ function App() {
           <Card 
             title={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>MQTT Topics</span>
+                <span>MQTT Chủ đề</span>
                 <Space>
-                  <Tooltip title="Auto-refresh every 5 seconds">
+                  <Tooltip title="Tự động làm mới mỗi 5 giây">
                     <Switch 
                       checked={autoRefresh} 
                       onChange={setAutoRefresh}
-                      checkedChildren="Auto"
-                      unCheckedChildren="Manual"
+                      checkedChildren="Tự động"
+                      unCheckedChildren="Thủ công"
                     />
                   </Tooltip>
                   <Button 
@@ -906,7 +1435,7 @@ function App() {
                     loading={loading}
                     size="small"
                   >
-                    Refresh
+                    Làm mới
                   </Button>
                 </Space>
               </div>
@@ -915,7 +1444,7 @@ function App() {
             extra={
               lastRefresh && (
                 <Text type="secondary" style={{ fontSize: '12px' }}>
-                  <ClockCircleOutlined /> Last updated: {lastRefresh.toLocaleTimeString()}
+                  <ClockCircleOutlined /> Cập nhật lần cuối: {lastRefresh.toLocaleTimeString()}
                 </Text>
               )
             }
@@ -924,25 +1453,25 @@ function App() {
             <div className="device-stats">
               <Row gutter={16}>
                 <Col span={6}>
-                  <Statistic title="Total Topics" value={topics.length} />
+                  <Statistic title="Tổng chủ đề" value={topics.length} />
                 </Col>
                 <Col span={6}>
                   <Statistic 
-                    title="Device Topics" 
+                    title="Chủ đề thiết bị" 
                     value={topics.filter(t => t.type === 'device').length}
                     valueStyle={{ color: '#1890ff' }}
                   />
                 </Col>
                 <Col span={6}>
                   <Statistic 
-                    title="Sensor Topics" 
+                    title="Chủ đề cảm biến" 
                     value={topics.filter(t => t.type === 'sensor').length}
                     valueStyle={{ color: '#52c41a' }}
                   />
                 </Col>
                 <Col span={6}>
                   <Statistic 
-                    title="Total Messages" 
+                    title="Tổng tin nhắn" 
                     value={topics.reduce((sum, t) => sum + (t.messageCount || 0), 0)}
                   />
                 </Col>
@@ -954,7 +1483,7 @@ function App() {
             {/* Search */}
             <div style={{ marginBottom: 16 }}>
               <Search
-                placeholder="Search topics..."
+                placeholder="Tìm kiếm chủ đề..."
                 allowClear
                 value={topicSearch}
                 onChange={(e) => setTopicSearch(e.target.value)}
@@ -974,17 +1503,17 @@ function App() {
                   pageSize: 10,
                   showSizeChanger: true,
                   showQuickJumper: true,
-                  showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} topics`,
+                  showTotal: (total, range) => `${range[0]}-${range[1]} trong ${total} chủ đề`,
                 }}
                 size="small"
                 scroll={{ x: 800 }}
               />
             ) : (
               <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                <Text type="secondary">No topics found</Text>
+                <Text type="secondary">Không tìm thấy chủ đề</Text>
                 <br />
                 <Button type="link" onClick={loadTopics}>
-                  Load Topics
+                  Tải chủ đề
                 </Button>
               </div>
             )}
@@ -1002,7 +1531,7 @@ function App() {
           <div className="logo-section">
             <DesktopOutlined className="logo-icon" />
             <Title level={4} className="logo-title">
-              IoT Device Management
+              IoT - Nhóm 10
             </Title>
           </div>
           
