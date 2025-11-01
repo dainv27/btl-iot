@@ -2,6 +2,7 @@ module.exports = {
   // MQTT broker configuration
   mqttPort: process.env.MQTT_PORT || 1883,
   wsPort: process.env.WS_PORT || 9090,
+  webPort: process.env.WEB_PORT || 3001, // Web server port
   
   // Authentication settings
   requireAuth: process.env.REQUIRE_AUTH === 'true' || false,

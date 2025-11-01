@@ -75,10 +75,10 @@ npm run test:iot
 
 ## 🌐 Access Points
 
-- **Web Dashboard**: http://14.224.166.195:3000
-- **MQTT Broker**: mqtt://14.224.166.195:1883
-- **WebSocket**: ws://14.224.166.195:8080
-- **MQTT Explorer**: http://14.224.166.195:4000 (with tools profile)
+- **Web Dashboard**: http://202corp.com:3000
+- **MQTT Broker**: mqtt://202corp.com:1883
+- **WebSocket**: ws://202corp.com:8080
+- **MQTT Explorer**: http://202corp.com:4000 (with tools profile)
 
 ## 📱 IoT Device Topics
 
@@ -163,7 +163,7 @@ iot/sensor/data/iot-device-12345/response
 |----------|---------|-------------|
 | `MQTT_PORT` | 1883 | MQTT broker port |
 | `WS_PORT` | 9090 | WebSocket port |
-| `WEB_PORT` | 3000 | Web dashboard port |
+| `WEB_PORT` | 3001 | Web dashboard port |
 | `REQUIRE_AUTH` | false | Enable authentication |
 | `MQTT_USERNAME` | admin | MQTT username |
 | `MQTT_PASSWORD` | password123 | MQTT password |

@@ -6,10 +6,10 @@ class RedisService {
         this.isConnected = false;
     }
 
-    async connect() {
+    async connect(redisUrl) {
         try {
             this.client = createClient({
-                url: process.env.REDIS_URL || 'redis://localhost:6379',
+                url: redisUrl || process.env.REDIS_URL || 'redis://localhost:6379',
                 socket: {
                     reconnectStrategy: (retries) => {
                         if (retries > 10) {
@@ -54,6 +54,80 @@ class RedisService {
         if (this.client && this.isConnected) {
             await this.client.quit();
             this.isConnected = false;
+        }
+    }
+
+    async cleanAllData() {
+        if (!this.isConnected) {
+            console.warn('[DEBUG] Redis not connected, cannot clean data');
+            return false;
+        }
+
+        try {
+            console.log('[DEBUG] Starting Redis data cleanup...');
+            
+            // Get all device keys
+            const deviceKeys = await this.client.keys('device:*');
+            console.log(`[DEBUG] Found ${deviceKeys.length} device keys`);
+            
+            // Get all log keys
+            const logKeys = await this.client.keys('log:*');
+            console.log(`[DEBUG] Found ${logKeys.length} log keys`);
+            
+            // Get all logs:device keys
+            const logsDeviceKeys = await this.client.keys('logs:device:*');
+            console.log(`[DEBUG] Found ${logsDeviceKeys.length} logs:device keys`);
+            
+            // Get all topic keys
+            const topicKeys = await this.client.keys('topic:*');
+            console.log(`[DEBUG] Found ${topicKeys.length} topic keys`);
+            
+            // Get all alert keys
+            const alertKeys = await this.client.keys('alert:*');
+            console.log(`[DEBUG] Found ${alertKeys.length} alert keys`);
+            
+            // Get all sensor data keys
+            const sensorKeys = await this.client.keys('sensor:*');
+            console.log(`[DEBUG] Found ${sensorKeys.length} sensor data keys`);
+            
+            // Delete all keys
+            const allKeys = [
+                ...deviceKeys,
+                ...logKeys,
+                ...logsDeviceKeys,
+                ...topicKeys,
+                ...alertKeys,
+                ...sensorKeys,
+                'devices:index',
+                'topics:index',
+                'logs:index'
+            ];
+
+            if (allKeys.length > 0) {
+                console.log(`[DEBUG] Deleting ${allKeys.length} keys...`);
+                for (const key of allKeys) {
+                    await this.client.del(key);
+                }
+                console.log(`[DEBUG] Deleted ${allKeys.length} keys`);
+            } else {
+                console.log('[DEBUG] No keys to delete');
+            }
+
+            // Clear sets and lists
+            try {
+                await this.client.del('devices:index');
+                await this.client.del('topics:index');
+                await this.client.del('logs:index');
+                console.log('[DEBUG] Cleared index sets');
+            } catch (e) {
+                // Ignore if keys don't exist
+            }
+
+            console.log('[DEBUG] Redis data cleanup completed successfully');
+            return true;
+        } catch (error) {
+            console.error('[DEBUG] Error cleaning Redis data:', error);
+            return false;
         }
     }
 
@@ -549,6 +623,152 @@ class RedisService {
             console.error('❌ Error getting log count:', error);
             return 0;
         }
+    }
+
+    // Subscription Management
+    async storeSubscription(clientId, topic, qos = 0) {
+        if (!this.isConnected) return false;
+        
+        try {
+            const subscriptionId = `sub:${clientId}:${topic}`;
+            const timestamp = new Date().toISOString();
+            
+            await this.client.hSet(subscriptionId, {
+                clientId: clientId,
+                topic: topic,
+                qos: qos,
+                subscribedAt: timestamp,
+                lastActivity: timestamp
+            });
+            
+            // Add to client subscriptions list
+            await this.client.sAdd(`client:${clientId}:subscriptions`, topic);
+            
+            // Add to topic subscribers list
+            await this.client.sAdd(`topic:${topic}:subscribers`, clientId);
+            
+            // Add to global subscriptions index
+            await this.client.sAdd('subscriptions:global', subscriptionId);
+            
+            // Set expiration (7 days)
+            await this.client.expire(subscriptionId, 7 * 24 * 60 * 60);
+            
+            return true;
+        } catch (error) {
+            console.error('❌ Error storing subscription:', error);
+            return false;
+        }
+    }
+
+    async removeSubscription(clientId, topic) {
+        if (!this.isConnected) return false;
+        
+        try {
+            const subscriptionId = `sub:${clientId}:${topic}`;
+            
+            // Remove subscription data
+            await this.client.del(subscriptionId);
+            
+            // Remove from client subscriptions list
+            await this.client.sRem(`client:${clientId}:subscriptions`, topic);
+            
+            // Remove from topic subscribers list
+            await this.client.sRem(`topic:${topic}:subscribers`, clientId);
+            
+            // Remove from global subscriptions index
+            await this.client.sRem('subscriptions:global', subscriptionId);
+            
+            return true;
+        } catch (error) {
+            console.error('❌ Error removing subscription:', error);
+            return false;
+        }
+    }
+
+    async getActiveSubscriptions() {
+        if (!this.isConnected) return [];
+        
+        try {
+            const subscriptionIds = await this.client.sMembers('subscriptions:global');
+            const subscriptions = [];
+            
+            for (const subscriptionId of subscriptionIds) {
+                const subscription = await this.client.hGetAll(subscriptionId);
+                if (Object.keys(subscription).length > 0) {
+                    subscriptions.push({
+                        ...subscription,
+                        qos: parseInt(subscription.qos) || 0
+                    });
+                }
+            }
+            
+            return subscriptions;
+        } catch (error) {
+            console.error('❌ Error getting active subscriptions:', error);
+            return [];
+        }
+    }
+
+    async getTopicSubscribers(topic) {
+        if (!this.isConnected) return [];
+        
+        try {
+            return await this.client.sMembers(`topic:${topic}:subscribers`);
+        } catch (error) {
+            console.error('❌ Error getting topic subscribers:', error);
+            return [];
+        }
+    }
+
+    async getClientSubscriptions(clientId) {
+        if (!this.isConnected) return [];
+        
+        try {
+            return await this.client.sMembers(`client:${clientId}:subscriptions`);
+        } catch (error) {
+            console.error('❌ Error getting client subscriptions:', error);
+            return [];
+        }
+    }
+
+    async getAllActiveTopics() {
+        if (!this.isConnected) return [];
+        
+        try {
+            const subscriptions = await this.getActiveSubscriptions();
+            const topics = new Set();
+            
+            subscriptions.forEach(sub => {
+                topics.add(sub.topic);
+            });
+            
+            const topicsArray = Array.from(topics);
+            const topicsWithSubscribers = [];
+            
+            for (const topic of topicsArray) {
+                const subscribers = await this.getTopicSubscribers(topic);
+                topicsWithSubscribers.push({
+                    name: topic,
+                    type: this.getTopicType(topic),
+                    subscribers: subscribers.length,
+                    messages: 0, // This would need to be tracked separately
+                    lastMessage: null
+                });
+            }
+            
+            return topicsWithSubscribers;
+        } catch (error) {
+            console.error('❌ Error getting all active topics:', error);
+            return [];
+        }
+    }
+
+    getTopicType(topic) {
+        if (topic.includes('device')) return 'device';
+        if (topic.includes('sensor')) return 'sensor';
+        if (topic.includes('actuator')) return 'actuator';
+        if (topic.includes('system')) return 'system';
+        return 'general';
     }
 
     // Health check
