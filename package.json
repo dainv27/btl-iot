@@ -1,0 +1,44 @@
+{
+  "name": "mqtt-broker",
+  "version": "1.0.0",
+  "description": "A simple MQTT broker implementation using Node.js",
+  "main": "src/broker/broker.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/broker/broker.js",
+    "dev": "nodemon src/broker/broker.js",
+    "test": "node src/clients/test-client.js",
+    "test:iot": "node src/clients/iot-device-client.js",
+    "test:sensor-control": "node src/clients/sensor-control-test.js",
+    "comprehensive-test": "node src/clients/comprehensive-test.js",
+    "manager": "node src/clients/device-manager.js",
+    "web": "node src/web/web-server.js",
+    "dashboard": "npm run web",
+    "build": "docker-compose build",
+    "up": "docker-compose up -d",
+    "down": "docker-compose down",
+    "logs": "docker-compose logs -f"
+  },
+  "keywords": [
+    "mqtt",
+    "broker",
+    "iot",
+    "messaging"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@ant-design/icons": "^6.1.0",
+    "aedes": "^0.50.0",
+    "antd": "^5.27.6",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "mqtt": "^5.3.4",
+    "net": "^1.0.2",
+    "redis": "^4.6.10",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

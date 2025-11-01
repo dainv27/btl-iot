@@ -1,0 +1,71 @@
+services:
+  # Main MQTT Broker + Web Dashboard service
+  mqtt-platform:
+    build: .
+    container_name: mqtt-iot-platform
+    ports:
+      - "1883:1883"    # MQTT port
+      - "9090:9090"    # WebSocket port
+      - "3001:3001"    # API port
+    environment:
+      - NODE_ENV=production
+      - MQTT_PORT=1883
+      - WS_PORT=9090
+      - API_PORT=3001
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./logs:/app/logs
+      - ./src/broker/config.js:/app/src/broker/config.js:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "const net = require('net'); const client = net.createConnection(1883, '202corp.com'); client.on('connect', () => { client.end(); process.exit(0); }); client.on('error', () => process.exit(1));"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - mqtt-network
+
+  # Optional: MQTT Explorer for testing
+  mqtt-explorer:
+    image: smeagolworms4/mqtt-explorer
+    container_name: mqtt-explorer
+    ports:
+      - "4000:4000"
+    environment:
+      - MQTT_EXPLORER_BROKER_URL=mqtt://mqtt-platform:1883
+    depends_on:
+      - mqtt-platform
+    networks:
+      - mqtt-network
+    profiles:
+      - tools
+
+  # Redis for device data persistence
+  redis:
+    image: redis:7-alpine
+    container_name: mqtt-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - mqtt-network
+
+networks:
+  mqtt-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+    driver: local
