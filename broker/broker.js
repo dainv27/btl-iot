@@ -7,73 +7,69 @@ const path = require('path');
 const config = require('./config');
 const RedisService = require('./redis-service');
 
-// IoT Device Management
 const connectedDevices = new Map();
 const deviceData = new Map();
-
-// Redis Service
 const redisService = new RedisService();
-
-// Create Express web server
 const app = express();
-
-// Web server instance (for graceful shutdown)
 let webServerInstance = null;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Serve static files from public directory
 app.use(express.static(path.join(__dirname, '../web/public')));
 
-// Create MQTT broker instance
 const server = net.createServer(aedes.handle);
 const wsServer = new ws.Server({ port: config.wsPort });
 
-// WebSocket server for MQTT over WebSocket
 wsServer.on('connection', function (socket) {
   const stream = ws.createWebSocketStream(socket);
   aedes.handle(stream);
 });
 
-// IoT Device Topic Structure
+const realtimeWsServer = new ws.Server({ port: config.wsPort + 1 });
+const realtimeClients = new Set();
+
+realtimeWsServer.on('connection', function (socket) {
+  console.log(`✅ Real-time WebSocket client connected`);
+  realtimeClients.add(socket);
+  
+  socket.on('close', function () {
+    console.log(`❌ Real-time WebSocket client disconnected`);
+    realtimeClients.delete(socket);
+  });
+  
+  socket.on('error', function (error) {
+    console.error('❌ Real-time WebSocket error:', error);
+    realtimeClients.delete(socket);
+  });
+});
+
 const IOT_TOPICS = {
   DEVICE_REGISTER: 'iot/device/register',
   DEVICE_STATUS: 'iot/device/status',
   DEVICE_DATA: 'iot/device/data',
-  DEVICE_COMMAND: 'iot/device/command',
-  DEVICE_RESPONSE: 'iot/device/response',
   SENSOR_DATA: 'iot/sensor/data', // Base topic for sensor data
   SENSOR_CTL: 'iot/sensor/ctl',   // Base topic for sensor control
   ACTUATOR_CONTROL: 'iot/actuator/control',
   DEVICE_HEARTBEAT: 'iot/device/heartbeat'
 };
 
-// Utility function to check if topic is IoT related
 function isIoTDeviceTopic(topic) {
   return topic.startsWith('iot/');
 }
 
-// Utility function to extract device ID from topic
 function extractDeviceId(topic) {
   const parts = topic.split('/');
   if (parts.length >= 3 && parts[0] === 'iot') {
-    // Handle different IoT topic formats:
-    // iot/device/{deviceId}/...
-    // iot/sensor/data/{deviceId}
-    // iot/sensor/ctl/{deviceId}
     if (parts[1] === 'device' && parts.length >= 3) {
-      return parts[2]; // iot/device/{deviceId}/...
+      return parts[2];
     } else if (parts[1] === 'sensor' && parts.length >= 4) {
-      return parts[3]; // iot/sensor/data/{deviceId} or iot/sensor/ctl/{deviceId}
+      return parts[3];
     }
   }
   return null;
 }
 
-// Utility function to format IoT data for logging
 function formatIoTData(topic, payload, deviceId) {
   try {
     const data = JSON.parse(payload.toString());
@@ -95,13 +91,11 @@ function formatIoTData(topic, payload, deviceId) {
   }
 }
 
-// Sensor alert checking function
 function checkSensorAlerts(sensorData, timestamp) {
   if (!sensorData.sensors) return;
   
   const alerts = [];
   
-  // Temperature alerts
   if (sensorData.sensors.temperature) {
     const temp = parseFloat(sensorData.sensors.temperature.value);
     if (temp > 30) {
@@ -125,7 +119,6 @@ function checkSensorAlerts(sensorData, timestamp) {
     }
   }
   
-  // Humidity alerts
   if (sensorData.sensors.humidity) {
     const humidity = parseFloat(sensorData.sensors.humidity.value);
     if (humidity > 80) {
@@ -149,19 +142,16 @@ function checkSensorAlerts(sensorData, timestamp) {
     }
   }
   
-  // Store alerts in Redis
   alerts.forEach(alert => {
     redisService.storeAlert(alert);
     console.log(`🚨 ALERT: ${alert.message} (Device: ${alert.deviceId})`);
   });
 }
 
-// Event handlers for broker
 aedes.on('client', function (client) {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] 🔌 Client Connected: ${client.id}`);
   
-  // Log client connection
   redisService.storeLog({
     deviceId: client.id,
     level: 'info',
@@ -170,7 +160,6 @@ aedes.on('client', function (client) {
     data: { clientId: client.id, timestamp: timestamp }
   });
   
-  // Check if this is an IoT device based on client ID pattern
   if (client.id.startsWith('iot-') || client.id.includes('device')) {
     connectedDevices.set(client.id, {
       id: client.id,
@@ -180,7 +169,6 @@ aedes.on('client', function (client) {
     });
     console.log(`[${timestamp}] 📱 IoT Device Registered: ${client.id}`);
     
-    // Store device connection in Redis
     redisService.storeDevice(client.id, {
       deviceId: client.id,
       status: 'online',
@@ -195,7 +183,6 @@ aedes.on('clientDisconnect', function (client) {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] 🔌 Client Disconnected: ${client.id}`);
   
-  // Log client disconnection
   redisService.storeLog({
     deviceId: client.id,
     level: 'info',
@@ -208,7 +195,6 @@ aedes.on('clientDisconnect', function (client) {
     const device = connectedDevices.get(client.id);
     console.log(`[${timestamp}] 📱 IoT Device Disconnected: ${client.id} (Messages: ${device.messageCount})`);
     
-    // Update device status in Redis
     redisService.updateDeviceStatus(client.id, 'offline', timestamp);
     
     connectedDevices.delete(client.id);
@@ -221,34 +207,28 @@ aedes.on('publish', function (packet, client) {
     const deviceId = extractDeviceId(packet.topic);
     
     if (isIoTDeviceTopic(packet.topic)) {
-      // Enhanced IoT device logging
       const iotData = formatIoTData(packet.topic, packet.payload, deviceId);
       
-      // Update device statistics
       if (connectedDevices.has(client.id)) {
         const device = connectedDevices.get(client.id);
         device.messageCount++;
         device.lastSeen = timestamp;
         connectedDevices.set(client.id, device);
         
-        // Update Redis with device info
         redisService.incrementDeviceMessageCount(client.id);
         redisService.updateDeviceStatus(client.id, 'online', timestamp);
       }
       
-      // Store device data
       if (deviceId) {
         if (!deviceData.has(deviceId)) {
           deviceData.set(deviceId, []);
         }
         const data = deviceData.get(deviceId);
         data.push(iotData);
-        // Keep only last 100 messages per device
         if (data.length > 100) {
           data.shift();
         }
         
-        // Log message to Redis
         redisService.storeLog({
           deviceId: deviceId,
           level: 'info',
@@ -258,14 +238,12 @@ aedes.on('publish', function (packet, client) {
         });
       }
       
-      // Update topic statistics
       redisService.storeTopicStats(packet.topic, {
         subscribers: 0, // This would need to be tracked separately
         messages: 1,
         lastMessage: timestamp
       });
       
-      // Enhanced console logging for IoT devices
       console.log(`\n[${timestamp}] 📱 IoT DEVICE DATA`);
       console.log(`   Device ID: ${iotData.deviceId}`);
       console.log(`   Topic: ${iotData.topic}`);
@@ -274,10 +252,8 @@ aedes.on('publish', function (packet, client) {
       console.log(`   QoS: ${packet.qos}`);
       console.log(`   Retain: ${packet.retain ? 'Yes' : 'No'}`);
       
-      // Special handling for different IoT topics
       if (packet.topic === IOT_TOPICS.DEVICE_REGISTER) {
         console.log(`   📋 Device Registration Data`);
-        // Store device registration in Redis
         if (iotData.data && iotData.data.deviceId) {
           redisService.storeDevice(iotData.data.deviceId, {
             ...iotData.data,
@@ -288,13 +264,11 @@ aedes.on('publish', function (packet, client) {
         }
       } else if (packet.topic === IOT_TOPICS.DEVICE_STATUS) {
         console.log(`   📊 Device Status Update`);
-        // Update device status in Redis
         if (iotData.data && iotData.data.deviceId) {
           redisService.updateDeviceStatus(iotData.data.deviceId, iotData.data.status, new Date().toISOString());
         }
       } else if (packet.topic === IOT_TOPICS.DEVICE_HEARTBEAT) {
         console.log(`   💓 Device Heartbeat`);
-        // Update device heartbeat info in Redis
         if (iotData.data && iotData.data.deviceId) {
           redisService.storeDevice(iotData.data.deviceId, {
             deviceId: iotData.data.deviceId,
@@ -306,23 +280,45 @@ aedes.on('publish', function (packet, client) {
         }
       } else if (packet.topic.startsWith(`${IOT_TOPICS.SENSOR_DATA}/`)) {
         console.log(`   🌡️  Sensor Data Received (Device-specific)`);
-        // Store sensor data in Redis
         if (iotData.data && iotData.data.deviceId) {
           redisService.storeSensorData(iotData.data.deviceId, iotData.data);
+          
+          // Broadcast sensor data via WebSocket
+          if (iotData.data.temperature !== undefined || iotData.data.humidity !== undefined) {
+            const wsMessage = JSON.stringify({
+              type: 'sensor_data',
+              deviceId: iotData.data.deviceId,
+              data: {
+                deviceId: iotData.data.deviceId,
+                temperature: iotData.data.temperature,
+                humidity: iotData.data.humidity,
+                timestamp: iotData.data.timestamp || Date.now()
+              },
+              timestamp: timestamp
+            });
+            
+            realtimeClients.forEach(client => {
+              if (client.readyState === ws.OPEN) {
+                try {
+                  client.send(wsMessage);
+                } catch (error) {
+                  console.error('Error sending WebSocket message:', error);
+                  realtimeClients.delete(client);
+                }
+              }
+            });
+          }
           
           // Check for sensor alerts
           checkSensorAlerts(iotData.data, timestamp);
         }
       } else if (packet.topic.startsWith(`${IOT_TOPICS.SENSOR_CTL}/`)) {
         console.log(`   🔧 Sensor Control Command`);
-        // Handle sensor control commands - could forward to other systems
         console.log(`   📤 Forwarding sensor control to device: ${deviceId}`);
       } else if (packet.topic.includes('sensor/data') && packet.topic.includes('/response')) {
         console.log(`   📤 Sensor Control Response`);
-        // Handle sensor control responses
       } else if (packet.topic.includes('sensor')) {
         console.log(`   📡 Sensor Data`);
-        // Store sensor data in Redis
         if (iotData.data && iotData.data.deviceId) {
           redisService.storeSensorData(iotData.data.deviceId, iotData.data);
           
@@ -401,7 +397,6 @@ aedes.authorizeSubscribe = function (client, sub, callback) {
   callback(null, sub);
 };
 
-// Device statistics logging
 setInterval(() => {
   if (connectedDevices.size > 0) {
     console.log(`\n[${new Date().toISOString()}] 📊 DEVICE STATISTICS`);
@@ -411,34 +406,9 @@ setInterval(() => {
     });
     console.log(`   ──────────────────────────────────────`);
   }
-}, 60000); // Log every minute
+}, 60000);
 
 // ==================== Web Server API Routes ====================
-
-// Fallback sample data (used when Redis is not available)
-const fallbackDevices = [
-  {
-    deviceId: 'ESP32_001',
-    deviceType: 'sensor',
-    location: 'Living Room',
-    status: 'online',
-    firmware: 'v1.2.3',
-    capabilities: ['temperature', 'humidity', 'light'],
-    registeredAt: new Date(Date.now() - 86400000).toISOString(),
-    lastSeen: new Date().toISOString(),
-    messageCount: 1250,
-    uptime: 86400,
-    memory: { heapUsed: 125000, heapTotal: 320000 },
-    lastSensorData: {
-      timestamp: new Date().toISOString(),
-      sensors: {
-        temperature: { value: 23.5, unit: '°C' },
-        humidity: { value: 65, unit: '%' },
-        light: { value: 450, unit: 'lux' }
-      }
-    }
-  }
-];
 
 // API Routes
 app.get('/api/status', async (req, res) => {
@@ -477,29 +447,29 @@ app.get('/api/status', async (req, res) => {
 
 app.get('/api/devices', async (req, res) => {
   try {
-    let devices = [];
+    if (!redisService.isConnected) {
+      return res.status(503).json({
+        success: false,
+        error: 'Redis service is not available',
+        devices: [],
+        count: 0,
+        timestamp: new Date().toISOString()
+      });
+    }
     
-    if (redisService.isConnected) {
-      // Get real devices from Redis
-      devices = await redisService.getAllDevices();
-      
-      // Enhance devices with latest sensor data
-      for (let device of devices) {
-        const sensorData = await redisService.getLatestSensorData(device.deviceId);
-        if (sensorData) {
-          device.lastSensorData = sensorData;
-        }
+    let devices = await redisService.getAllDevices();
+    
+    for (let device of devices) {
+      const sensorData = await redisService.getLatestSensorData(device.deviceId);
+      if (sensorData) {
+        device.lastSensorData = sensorData;
       }
-    } else {
-      // Use fallback data
-      devices = fallbackDevices;
     }
     
     res.json({
       success: true,
       devices: devices,
       count: devices.length,
-      source: redisService.isConnected ? 'redis' : 'fallback',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -507,9 +477,8 @@ app.get('/api/devices', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to load devices',
-      devices: fallbackDevices,
-      count: fallbackDevices.length,
-      source: 'fallback',
+      devices: [],
+      count: 0,
       timestamp: new Date().toISOString()
     });
   }
@@ -517,33 +486,35 @@ app.get('/api/devices', async (req, res) => {
 
 app.get('/api/devices/:deviceId', async (req, res) => {
   try {
-    const { deviceId } = req.params;
-    let device = null;
-    
-    if (redisService.isConnected) {
-      device = await redisService.getDevice(deviceId);
-      if (device) {
-        const sensorData = await redisService.getLatestSensorData(deviceId);
-        if (sensorData) {
-          device.lastSensorData = sensorData;
-        }
-      }
-    } else {
-      device = fallbackDevices.find(d => d.deviceId === deviceId);
+    if (!redisService.isConnected) {
+      return res.status(503).json({
+        success: false,
+        error: 'Redis service is not available',
+        device: null,
+        timestamp: new Date().toISOString()
+      });
     }
+    
+    const { deviceId } = req.params;
+    const device = await redisService.getDevice(deviceId);
     
     if (!device) {
       return res.status(404).json({
         success: false,
         error: 'Device not found',
+        device: null,
         timestamp: new Date().toISOString()
       });
+    }
+    
+    const sensorData = await redisService.getLatestSensorData(deviceId);
+    if (sensorData) {
+      device.lastSensorData = sensorData;
     }
     
     res.json({
       success: true,
       device: device,
-      source: redisService.isConnected ? 'redis' : 'fallback',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -556,13 +527,66 @@ app.get('/api/devices/:deviceId', async (req, res) => {
   }
 });
 
+app.get('/api/sensor-data/:deviceId', async (req, res) => {
+  try {
+    if (!redisService.isConnected) {
+      return res.status(503).json({
+        success: false,
+        error: 'Redis service is not available',
+        data: null,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    const { deviceId } = req.params;
+    const sensorDataObj = await redisService.getLatestSensorData(deviceId);
+    
+    if (!sensorDataObj || !sensorDataObj.data) {
+      return res.status(404).json({
+        success: false,
+        error: 'Sensor data not found for device',
+        data: null,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    const sensorData = sensorDataObj.data;
+    
+    res.json({
+      success: true,
+      data: {
+        deviceId: sensorData.deviceId || deviceId,
+        temperature: sensorData.temperature,
+        humidity: sensorData.humidity,
+        timestamp: sensorData.timestamp || sensorDataObj.timestamp
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error getting sensor data:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get sensor data',
+      data: null,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Send command to device via MQTT
 app.post('/api/devices/:deviceId/command', async (req, res) => {
+  console.log('[DEBUG] Command request received');
+  console.log('[DEBUG] Request params:', req.params);
+  console.log('[DEBUG] Request body:', JSON.stringify(req.body, null, 2));
+  
   try {
     const { deviceId } = req.params;
     const { topic, data, qos = 0, retain = false } = req.body;
     
+    console.log('[DEBUG] Parsed values:', { deviceId, topic, qos, retain, dataType: typeof data });
+    
     if (!topic) {
+      console.warn('[DEBUG] Topic validation failed: topic is required');
       return res.status(400).json({
         success: false,
         error: 'Topic is required',
@@ -570,22 +594,27 @@ app.post('/api/devices/:deviceId/command', async (req, res) => {
       });
     }
     
-    // Prepare message payload
+    console.log('[DEBUG] Processing payload, data type:', typeof data);
     let payload;
     if (typeof data === 'object') {
       payload = JSON.stringify(data);
+      console.log('[DEBUG] Data is object, stringified:', payload);
     } else if (typeof data === 'string') {
       try {
-        // Try to parse as JSON to validate
         JSON.parse(data);
         payload = data;
+        console.log('[DEBUG] Data is valid JSON string');
       } catch (e) {
-        // If not valid JSON, treat as plain text
         payload = data;
+        console.log('[DEBUG] Data is plain text string');
       }
     } else {
       payload = String(data);
+      console.log('[DEBUG] Data converted to string:', payload);
     }
+    
+    console.log('[DEBUG] Final payload:', payload);
+    console.log('[DEBUG] Payload length:', payload.length);
     
     // Publish message to MQTT broker using aedes
     try {
@@ -654,49 +683,26 @@ app.post('/api/devices/:deviceId/command', async (req, res) => {
 app.get('/api/logs', async (req, res) => {
   try {
     const { deviceId, level, limit = 100 } = req.query;
-    let logs = [];
     
-    if (redisService.isConnected) {
-      if (deviceId) {
-        logs = await redisService.getDeviceLogs(deviceId, parseInt(limit));
-      } else {
-        logs = await redisService.getAllLogs(parseInt(limit));
-      }
-      
-      // Filter by level if specified
-      if (level) {
-        logs = logs.filter(log => log.level === level);
-      }
+    if (!redisService.isConnected) {
+      return res.status(503).json({
+        success: false,
+        error: 'Redis service is not available',
+        logs: [],
+        count: 0,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    let logs = [];
+    if (deviceId) {
+      logs = await redisService.getDeviceLogs(deviceId, parseInt(limit));
     } else {
-      // Fallback logs
-      logs = [
-        {
-          id: 1,
-          timestamp: new Date().toISOString(),
-          level: 'info',
-          deviceId: 'ESP32_001',
-          message: 'Device started successfully',
-          topic: 'system/startup',
-          data: { firmware: 'v1.2.3', uptime: 0 }
-        },
-        {
-          id: 2,
-          timestamp: new Date(Date.now() - 300000).toISOString(),
-          level: 'warning',
-          deviceId: 'ESP32_002',
-          message: 'High temperature detected',
-          topic: 'sensor/alert',
-          data: { temperature: 85, threshold: 80 }
-        }
-      ];
-      
-      // Apply filters
-      if (deviceId) {
-        logs = logs.filter(log => log.deviceId === deviceId);
-      }
-      if (level) {
-        logs = logs.filter(log => log.level === level);
-      }
+      logs = await redisService.getAllLogs(parseInt(limit));
+    }
+    
+    if (level) {
+      logs = logs.filter(log => log.level === level);
     }
     
     res.json({
@@ -704,7 +710,6 @@ app.get('/api/logs', async (req, res) => {
       logs: logs,
       count: logs.length,
       filters: { deviceId, level, limit },
-      source: redisService.isConnected ? 'redis' : 'fallback',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -721,66 +726,32 @@ app.get('/api/logs', async (req, res) => {
 
 app.get('/api/topics', async (req, res) => {
   try {
-    let topics = [];
-    
-    if (redisService.isConnected) {
-      // Get real topics from Redis
-      topics = await redisService.getAllActiveTopics();
-      
-      // Enhance with topic stats
-      const topicStats = await redisService.getTopicStats();
-      topics = topics.map(topic => ({
-        ...topic,
-        messageCount: topicStats[topic.name]?.messages || 0,
-        lastMessage: topicStats[topic.name]?.lastMessage || null,
-        qos: 0,
-        retained: false,
-        description: `Active topic: ${topic.name}`
-      }));
-    } else {
-      // Fallback topics
-      topics = [
-        {
-          name: 'iot/device/register',
-          type: 'system',
-          status: 'active',
-          messageCount: 15,
-          lastMessage: new Date().toISOString(),
-          subscribers: ['broker', 'monitor'],
-          qos: 0,
-          retained: false,
-          description: 'Device registration messages'
-        },
-        {
-          name: 'iot/device/status',
-          type: 'status',
-          status: 'active',
-          messageCount: 1250,
-          lastMessage: new Date(Date.now() - 300000).toISOString(),
-          subscribers: ['broker', 'monitor', 'dashboard'],
-          qos: 1,
-          retained: true,
-          description: 'Device status updates'
-        },
-        {
-          name: 'iot/sensor/data',
-          type: 'data',
-          status: 'active',
-          messageCount: 8900,
-          lastMessage: new Date(Date.now() - 60000).toISOString(),
-          subscribers: ['broker', 'monitor', 'analytics'],
-          qos: 0,
-          retained: false,
-          description: 'Sensor data from IoT devices'
-        }
-      ];
+    if (!redisService.isConnected) {
+      return res.status(503).json({
+        success: false,
+        error: 'Redis service is not available',
+        topics: [],
+        count: 0,
+        timestamp: new Date().toISOString()
+      });
     }
+    
+    let topics = await redisService.getAllActiveTopics();
+    
+    const topicStats = await redisService.getTopicStats();
+    topics = topics.map(topic => ({
+      ...topic,
+      messageCount: topicStats[topic.name]?.messages || 0,
+      lastMessage: topicStats[topic.name]?.lastMessage || null,
+      qos: 0,
+      retained: false,
+      description: `Active topic: ${topic.name}`
+    }));
     
     res.json({
       success: true,
       topics: topics,
       count: topics.length,
-      source: redisService.isConnected ? 'redis' : 'fallback',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -797,38 +768,25 @@ app.get('/api/topics', async (req, res) => {
 
 app.get('/api/topics/:topicName/subscribers', async (req, res) => {
   try {
-    const { topicName } = req.params;
-    let subscribers = [];
-    
-    if (redisService.isConnected) {
-      subscribers = await redisService.getTopicSubscribers(topicName);
-    } else {
-      // Fallback subscribers
-      const fallbackTopics = [
-        {
-          name: 'iot/device/register',
-          subscribers: ['broker', 'monitor']
-        },
-        {
-          name: 'iot/device/status',
-          subscribers: ['broker', 'monitor', 'dashboard']
-        },
-        {
-          name: 'iot/sensor/data',
-          subscribers: ['broker', 'monitor', 'analytics']
-        }
-      ];
-      
-      const topic = fallbackTopics.find(t => t.name === topicName);
-      subscribers = topic ? topic.subscribers : [];
+    if (!redisService.isConnected) {
+      return res.status(503).json({
+        success: false,
+        error: 'Redis service is not available',
+        topic: req.params.topicName,
+        subscribers: [],
+        count: 0,
+        timestamp: new Date().toISOString()
+      });
     }
+    
+    const { topicName } = req.params;
+    const subscribers = await redisService.getTopicSubscribers(topicName);
     
     res.json({
       success: true,
       topic: topicName,
       subscribers: subscribers,
       count: subscribers.length,
-      source: redisService.isConnected ? 'redis' : 'fallback',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -903,6 +861,19 @@ async function startServer() {
     
     if (redisConnected) {
         console.log('✅ Redis connected successfully');
+        
+        // Clean Redis data after connection
+        console.log('🧹 Cleaning Redis data...');
+        try {
+            const cleaned = await redisService.cleanAllData();
+            if (cleaned) {
+                console.log('✅ Redis data cleaned successfully');
+            } else {
+                console.log('⚠️  Redis data cleanup failed');
+            }
+        } catch (error) {
+            console.error('❌ Error cleaning Redis data:', error);
+        }
     } else {
         console.log('⚠️  Redis connection failed - continuing without persistence');
     }
@@ -911,6 +882,7 @@ async function startServer() {
     server.listen(config.mqttPort, function () {
         console.log(`🚀 MQTT Broker started on port ${config.mqttPort}`);
         console.log(`🌐 WebSocket server started on port ${config.wsPort}`);
+        console.log(`🌐 Real-time WebSocket server started on port ${config.wsPort + 1}`);
         console.log(`📊 Broker ID: ${aedes.id}`);
         console.log(`🔐 Authentication: ${config.requireAuth ? 'Enabled' : 'Disabled'}`);
     });

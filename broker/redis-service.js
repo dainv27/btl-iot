@@ -57,6 +57,80 @@ class RedisService {
         }
     }
 
+    async cleanAllData() {
+        if (!this.isConnected) {
+            console.warn('[DEBUG] Redis not connected, cannot clean data');
+            return false;
+        }
+
+        try {
+            console.log('[DEBUG] Starting Redis data cleanup...');
+            
+            // Get all device keys
+            const deviceKeys = await this.client.keys('device:*');
+            console.log(`[DEBUG] Found ${deviceKeys.length} device keys`);
+            
+            // Get all log keys
+            const logKeys = await this.client.keys('log:*');
+            console.log(`[DEBUG] Found ${logKeys.length} log keys`);
+            
+            // Get all logs:device keys
+            const logsDeviceKeys = await this.client.keys('logs:device:*');
+            console.log(`[DEBUG] Found ${logsDeviceKeys.length} logs:device keys`);
+            
+            // Get all topic keys
+            const topicKeys = await this.client.keys('topic:*');
+            console.log(`[DEBUG] Found ${topicKeys.length} topic keys`);
+            
+            // Get all alert keys
+            const alertKeys = await this.client.keys('alert:*');
+            console.log(`[DEBUG] Found ${alertKeys.length} alert keys`);
+            
+            // Get all sensor data keys
+            const sensorKeys = await this.client.keys('sensor:*');
+            console.log(`[DEBUG] Found ${sensorKeys.length} sensor data keys`);
+            
+            // Delete all keys
+            const allKeys = [
+                ...deviceKeys,
+                ...logKeys,
+                ...logsDeviceKeys,
+                ...topicKeys,
+                ...alertKeys,
+                ...sensorKeys,
+                'devices:index',
+                'topics:index',
+                'logs:index'
+            ];
+
+            if (allKeys.length > 0) {
+                console.log(`[DEBUG] Deleting ${allKeys.length} keys...`);
+                for (const key of allKeys) {
+                    await this.client.del(key);
+                }
+                console.log(`[DEBUG] Deleted ${allKeys.length} keys`);
+            } else {
+                console.log('[DEBUG] No keys to delete');
+            }
+
+            // Clear sets and lists
+            try {
+                await this.client.del('devices:index');
+                await this.client.del('topics:index');
+                await this.client.del('logs:index');
+                console.log('[DEBUG] Cleared index sets');
+            } catch (e) {
+                // Ignore if keys don't exist
+            }
+
+            console.log('[DEBUG] Redis data cleanup completed successfully');
+            return true;
+        } catch (error) {
+            console.error('[DEBUG] Error cleaning Redis data:', error);
+            return false;
+        }
+    }
+
     // Device Management
     async storeDevice(deviceId, deviceData) {
         if (!this.isConnected) return false;
