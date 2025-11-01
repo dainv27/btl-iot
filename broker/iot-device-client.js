@@ -1,5 +1,5 @@
 const mqtt = require('mqtt');
-const config = require('../broker/config');
+const config = require('./config');
 
 // IoT Device Topics
 const IOT_TOPICS = {
@@ -23,8 +23,11 @@ const DEVICE_CONFIG = {
   capabilities: ['temperature', 'humidity', 'light']
 };
 
+// MQTT host configuration
+const mqttHost = config.mqttHost || process.env.MQTT_HOST || 'localhost';
+
 // Create MQTT client for IoT device
-const client = mqtt.connect(`mqtt://202corp.com:${config.mqttPort}`, {
+const client = mqtt.connect(`mqtt://${mqttHost}:${config.mqttPort}`, {
   clientId: DEVICE_CONFIG.deviceId,
   clean: true,
   connectTimeout: 4000,
@@ -269,6 +272,6 @@ process.on('SIGINT', function () {
 
 console.log('🚀 Starting IoT Device...');
 console.log(`📱 Device ID: ${DEVICE_CONFIG.deviceId}`);
-console.log(`🔗 Connecting to: mqtt://202corp.com:${config.mqttPort}`);
+console.log(`🔗 Connecting to: mqtt://${mqttHost}:${config.mqttPort}`);
 console.log(`📍 Location: ${DEVICE_CONFIG.location}`);
 console.log(`🔧 Capabilities: ${DEVICE_CONFIG.capabilities.join(', ')}`);

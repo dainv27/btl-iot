@@ -1,24 +1,33 @@
 services:
   # Main MQTT Broker + Web Dashboard service
   mqtt-platform:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: mqtt-iot-platform
     ports:
       - "1883:1883"    # MQTT port
       - "9090:9090"    # WebSocket port
-      - "3001:3001"    # API port
+      - "3001:3001"    # Web Dashboard API port
     environment:
       - NODE_ENV=production
       - MQTT_PORT=1883
       - WS_PORT=9090
-      - API_PORT=3001
+      - WEB_PORT=3001
       - REDIS_URL=redis://redis:6379
+      - REQUIRE_AUTH=false
+      - ALLOW_ANONYMOUS=true
+      - LOG_LEVEL=info
+      - MAX_CONNECTIONS=1000
+      - KEEP_ALIVE=60
     volumes:
       - ./logs:/app/logs
-      - ./src/broker/config.js:/app/src/broker/config.js:ro
+      - ./config.js:/app/config.js:ro
+      - ./config.production.js:/app/config.production.js:ro
+      - ../web/public:/app/../web/public:ro
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "const net = require('net'); const client = net.createConnection(1883, '202corp.com'); client.on('connect', () => { client.end(); process.exit(0); }); client.on('error', () => process.exit(1));"]
+      test: ["CMD", "node", "-e", "const net = require('net'); const client = net.createConnection(1883, 'localhost'); client.on('connect', () => { client.end(); process.exit(0); }); client.on('error', () => process.exit(1));"]
       interval: 30s
       timeout: 10s
       retries: 3

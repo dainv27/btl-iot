@@ -1,5 +1,6 @@
 module.exports = {
   // MQTT broker configuration
+  mqttHost: process.env.MQTT_HOST || 'localhost',
   mqttPort: 1883,
   wsPort: 9090,
   webPort: 3001, // Web server port

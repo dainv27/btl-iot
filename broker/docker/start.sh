@@ -1,11 +1,11 @@
 #!/bin/sh
 
-# Start MQTT Broker in background
-echo "🚀 Starting MQTT Broker..."
-node src/broker/broker.js &
+# Start MQTT Broker + Web Dashboard
+echo "🚀 Starting MQTT Broker and Web Dashboard..."
+node broker.js &
 BROKER_PID=$!
 
-# Wait for broker to start
+# Wait for services to start
 sleep 3
 
 # Function to handle shutdown
